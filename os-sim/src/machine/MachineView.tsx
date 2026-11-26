@@ -176,6 +176,15 @@ export function MachineView() {
 
   const busy = phase === 'loading' || phase === 'booting';
 
+  // Prevent the page from scrolling while the pointer is over the machine.
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return;
+    const stop = (e: WheelEvent) => e.preventDefault();
+    el.addEventListener('wheel', stop, { passive: false });
+    return () => el.removeEventListener('wheel', stop);
+  }, [screen]);
+
   return (
     <div className="machine">
       <div className="machine-head">

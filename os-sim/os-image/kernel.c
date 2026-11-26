@@ -557,8 +557,8 @@ static void draw_desktop(void) {
     fill(0, y, W, 1, c);
   }
   for (int i = 0; i < 8; i++) hline(0, 120 + i * 34, W, C_DESK);
-  draw_text(W - 150, 10, C_TEXTBRIGHT, "NovaDesk 1.0");
-  draw_text(W - 150, 22, C_TEXT_DIM, "640x400 / VBE 8-bit");
+  draw_text(W - 158, 10, C_TEXTBRIGHT, "NovaDesk 1.0");
+  draw_text(W - 158, 22, C_TEXT_DIM, "640x400 VBE 8-bit");
 
   for (int i = 0; i < NICONS; i++) {
     draw_icon(icons[i].x, icons[i].y, icons[i].app);
@@ -736,13 +736,13 @@ static void app_about(Win *w) {
   int cw = w->w - WIN_PAD * 2;
   fill(cx + 2, cy + 2, cw - 4, w->h - TITLE_H - WIN_PAD * 2 - 4, C_WIN);
   disc(cx + 34, cy + 40, 22, C_ACCENT);
-  draw_text2(cx + 20, cy + 30, C_TEXTBRIGHT, "N");
+  draw_text2(cx + 21, cy + 29, C_TEXTBRIGHT, "N");
   draw_text2(cx + 68, cy + 22, C_NAVY, "NovaDesk");
-  draw_text(cx + 68, cy + 44, C_TEXT, "Version 1.0  (build 2026.11)");
-  draw_text(cx + 20, cy + 76, C_TEXT_DIM, "A real 32-bit protected-mode OS for NovaOS.");
-  draw_text(cx + 20, cy + 90, C_TEXT_DIM, "Booted by BIOS, runs on emulated x86 hardware.");
-  draw_text(cx + 20, cy + 104, C_TEXT_DIM, "VGA 640x400x8 VBE  -  PS/2 mouse  -  100Hz PIT");
-  draw_text(cx + 20, cy + 124, C_ACCENT, "Press any desktop icon to launch a program.");
+  draw_text(cx + 68, cy + 44, C_TEXT, "Version 1.0 - build 2026.11");
+  draw_text(cx + 20, cy + 80, C_TEXT_DIM, "32-bit protected-mode OS for NovaOS.");
+  draw_text(cx + 20, cy + 94, C_TEXT_DIM, "BIOS booted, runs on emulated x86.");
+  draw_text(cx + 20, cy + 108, C_TEXT_DIM, "VBE 8-bit - PS/2 mouse - 100Hz PIT");
+  draw_text(cx + 20, cy + 128, C_ACCENT, "Click an icon to launch a program.");
 }
 
 static void shell_exec(const char *cmd) {
