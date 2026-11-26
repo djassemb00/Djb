@@ -9,6 +9,8 @@ import { Dock } from './components/Dock';
 import { WindowManager } from './components/WindowManager';
 import { DesktopIcons, Launcher, NotificationCenter, PowerMenu, Toasts } from './components/Desktop';
 import { NovaMark } from './components/NovaMark';
+import { MachineView } from './machine/MachineView';
+import { useVM } from './store/useVM';
 import { cx } from './system/cx';
 
 export default function App() {
@@ -18,6 +20,7 @@ export default function App() {
   const beginBoot = useOS((s) => s.beginBoot);
   const restart = useOS((s) => s.restart);
 
+  const vmScreen = useVM((s) => s.screen);
   const [center, setCenter] = useState(false);
   const [launcher, setLauncher] = useState(false);
   const [power, setPower] = useState(false);
@@ -62,14 +65,14 @@ export default function App() {
         setPower(false);
       }
       if (e.key === 'F2' && phase === 'desktop') setLauncher((v) => !v);
-      if (e.key === 'F5' && phase === 'desktop') {
+      if (e.key === 'F5' && phase === 'desktop' && vmScreen !== 'machine') {
         e.preventDefault();
         restart();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase, restart]);
+  }, [phase, restart, vmScreen]);
 
   const wp = WALLPAPERS.find((w) => w.id === settings.wallpaper) ?? WALLPAPERS[0];
 
@@ -144,6 +147,12 @@ export default function App() {
 
           {phase === 'lock' && <LockScreen />}
         </>
+      )}
+
+      {phase === 'desktop' && vmScreen === 'machine' && (
+        <div className="machine-shell">
+          <MachineView />
+        </div>
       )}
 
       {phase === 'shutdown' && <ShutdownScreen />}

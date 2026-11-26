@@ -1715,3 +1715,375 @@ textarea.input {
     overflow-y: auto;
   }
 }
+
+/* ============ Nova Machine (real x86 PC inside NovaOS) ============ */
+.machine-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 1200;
+  background: radial-gradient(120% 90% at 50% 0%, #14162b 0%, #0a0b14 60%, #05050a 100%);
+  display: flex;
+  animation: fadeIn 0.22s ease;
+}
+
+.machine {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 12px 12px;
+  gap: 10px;
+  color: #e6e9f5;
+}
+
+.machine-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(38, 42, 68, 0.9), rgba(20, 22, 38, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.machine-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 130px;
+}
+.machine-title b {
+  font-size: 13px;
+  letter-spacing: 0.4px;
+}
+.machine-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4b5563;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.led.on {
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+  animation: pulseLed 1.8s ease-in-out infinite;
+}
+@keyframes pulseLed {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.machine-tools {
+  display: flex;
+  gap: 4px;
+}
+.machine-tools .btn {
+  padding: 7px;
+  border-radius: 10px;
+}
+
+.machine-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 288px;
+  gap: 12px;
+}
+
+.machine-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* CRT bezel around the emulated monitor */
+.crt {
+  position: relative;
+  border-radius: 16px;
+  padding: 12px;
+  background: linear-gradient(160deg, #2a2d40, #14161f 55%, #0b0c11);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    0 26px 60px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  max-width: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+.crt-screen {
+  position: relative;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #05060a;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9);
+  line-height: 0;
+}
+/* v86 injects: a text-mode <div> + a graphical <canvas> */
+.crt-screen > div {
+  white-space: pre;
+  font: 14px/14px 'DejaVu Sans Mono', 'Courier New', monospace;
+  color: #d8e0ff;
+  background: #000;
+  padding: 8px;
+}
+.crt-screen canvas {
+  display: block;
+  image-rendering: pixelated;
+  max-width: 100%;
+  height: auto !important;
+}
+.crt-glass {
+  position: absolute;
+  inset: 12px;
+  border-radius: 9px;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.06), transparent 38%),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+  mix-blend-mode: screen;
+  opacity: 0.5;
+}
+.crt-overlay {
+  position: absolute;
+  inset: 12px;
+  border-radius: 9px;
+  background: rgba(4, 6, 14, 0.86);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+  color: #e8ecff;
+}
+.crt-label {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  color: rgba(226, 232, 255, 0.5);
+  font-size: 10.5px;
+}
+.crt-label .row {
+  display: inline-flex;
+  align-items: center;
+}
+
+.boot-logo.sm {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #8b5cf6, #4c1d95);
+  box-shadow: 0 0 24px rgba(139, 92, 246, 0.5);
+}
+
+.machine-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(30, 33, 55, 0.92), rgba(16, 18, 30, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.side-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: rgba(200, 210, 255, 0.62);
+  margin-bottom: 8px;
+}
+.disk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.disk {
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.disk.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent) inset;
+  background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.03));
+}
+.disk b {
+  font-size: 12px;
+}
+.disk p {
+  margin: 5px 0 0;
+  line-height: 1.45;
+}
+.chip {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(230, 235, 255, 0.75);
+}
+.disk .btn {
+  padding: 5px 9px;
+  font-size: 11px;
+  border-radius: 9px;
+}
+.btn.danger {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.serial-log {
+  margin: 0;
+  padding: 8px;
+  height: 128px;
+  overflow: auto;
+  border-radius: 10px;
+  background: #05070d;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: #7dffb0;
+  font: 10px/1.45 'DejaVu Sans Mono', 'Courier New', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.spec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.spec-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  padding-bottom: 5px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.07);
+}
+.spec-list span {
+  color: rgba(200, 210, 255, 0.55);
+}
+.spec-list b {
+  font-weight: 600;
+  text-align: end;
+}
+
+.machine-toast {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: #eef2ff;
+  background: rgba(20, 22, 38, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+
+/* in-window launcher card */
+.emu-launcher {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  height: 100%;
+  overflow: auto;
+}
+.emu-hero {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.emu-badge {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(140deg, #8b5cf6, #4c1d95);
+  box-shadow: 0 10px 24px rgba(139, 92, 246, 0.35);
+}
+.emu-hero h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.emu-hero p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.emu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+.emu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+}
+.emu-card b {
+  font-size: 12px;
+}
+.emu-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.emu-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: auto;
+  padding: 10px;
+  border-radius: 11px;
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+  border: 1px dashed var(--stroke);
+}
+
+@media (max-width: 860px) {
+  .machine-body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .machine-side {
+    max-height: 240px;
+  }
+  .emu-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

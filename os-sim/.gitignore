@@ -1,0 +1,12 @@
+
+# local VM probe harness
+.probe/
+
+# build intermediates
+*.o
+*.elf
+*.bin
+*.full
+!nova-desk.img
+
+tsconfig.tsbuildinfo

@@ -9,6 +9,7 @@ import {
   NotebookPen,
   Settings,
   SquareTerminal,
+  Cpu,
 } from 'lucide-react';
 import type { AppId } from '../store/useOS';
 
@@ -26,6 +27,18 @@ export interface AppMeta {
 }
 
 export const APPS: AppMeta[] = [
+  {
+    id: 'pcemu',
+    name: 'محاكي الحاسوب',
+    desc: 'شغّل برامج حقيقية داخل جهاز PC افتراضي',
+    icon: Cpu,
+    from: '#8b5cf6',
+    to: '#4c1d95',
+    width: 900,
+    height: 620,
+    dock: true,
+    desktop: true,
+  },
   {
     id: 'files',
     name: 'الملفات',
