@@ -1127,6 +1127,69 @@ static void shell_exec(const char *cmd) {
   } else if (!strcmp_ci(first, "cls")) {
     shell_rows = 0;
     return;
+  } else if (!strcmp_ci(first, "bench")) {
+    /* Speed report. `ticks` is our 100 Hz PIT counter, but this command runs
+       inside the keyboard IRQ where further interrupts are masked, so PIT time
+       stands still. rdtsc works: v86 emulates the TSC. We measure both a tight
+       integer loop (the JIT's throughput) and a memory walk (the bus speed). */
+    u32 lo, hi;
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    u32 c0 = lo;
+    u32 acc = 0x12345678u;
+    for (u32 i = 0; i < 20000000u; i++) acc = acc * 1664525u + 1013904223u + i;
+    __asm__ volatile("" ::: "memory");
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    u32 cInt = lo - c0;
+
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    c0 = lo;
+    u32 sum = 0;
+    for (u32 i = 0; i < 2000000u; i++) sum += SCREEN[(i * 64u) % (W * H)];
+    __asm__ volatile("" ::: "memory");
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    u32 cMem = lo - c0;
+
+    log("BENCH: int_cycles=");
+    log_hex(cInt);
+    log(" mem_cycles=");
+    log_hex(cMem);
+    log(" acc=");
+    log_hex(acc + sum);
+    log("\r\n");
+
+    char b[44];
+    for (int q = 0; q < 44; q++) b[q] = 0;
+    scopy(b, "20M int ", 44);
+    char nb[12];
+    for (int q = 0; q < 12; q++) nb[q] = 0;
+    itoa_((int)(cInt / 1000), nb);
+    sappend(b, nb, 44);
+    sappend(b, "k cyc", 44);
+    sh_line(b);
+  } else if (!strcmp_ci(first, "benchp")) {
+    /* x87 throughput: v86 defaults to x87_fast_math (native doubles) */
+    u32 lo, hi;
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    u32 c0 = lo;
+    double d = 1.0000001;
+    for (int i = 0; i < 2000000; i++) d = d * 1.0000001 + 0.5;
+    __asm__ volatile("" ::: "memory");
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    u32 cF = lo - c0;
+    log("BENCHP: fpu_cycles=");
+    log_hex(cF);
+    log("\r\n");
+    /* keep the result alive so the loop is not optimised away */
+    if (d == 12345.0) log("impossible\r\n");
+    char b[44];
+    for (int q = 0; q < 44; q++) b[q] = 0;
+    scopy(b, "2M FP ops ", 44);
+    char nb[12];
+    for (int q = 0; q < 12; q++) nb[q] = 0;
+    itoa_((int)(cF / 1000), nb);
+    sappend(b, nb, 44);
+    sappend(b, "k cyc", 44);
+    sh_line(b);
   } else if (!strcmp_ci(first, "mem")) {
     scopy(shell_out[shell_rows % SHELL_ROWS], "  640K conventional, 21K used", 44);
     shell_rows++;
