@@ -2121,3 +2121,60 @@ textarea.input {
   font-size: 11.5px;
   border-radius: 10px;
 }
+
+/* off-screen input the mobile keyboard can attach to */
+.emu-pad {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+}
+.crt {
+  position: relative;
+}
+
+/* keyboard help sheet */
+.keys-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 6, 14, 0.66);
+  backdrop-filter: blur(4px);
+}
+.keys-card {
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(36, 40, 66, 0.98), rgba(18, 20, 34, 0.99));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  color: #e8ecff;
+}
+.keys-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.keys-grid > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.07);
+}
+.keys-grid code {
+  min-width: 84px;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  text-align: center;
+}

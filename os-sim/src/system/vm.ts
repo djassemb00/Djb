@@ -29,6 +29,8 @@ export interface VMApi {
   sendText: (text: string) => void;
   /** type a whole command line and press Enter (v86 has no keycode for CR) */
   sendLine: (text: string) => void;
+  /** send raw PS/2 set-1 scancodes (make/break pairs) */
+  sendScancodes: (codes: number[]) => void;
   /** true once the guest has drawn something */
   isAlive: () => boolean;
   setScale: (n: number) => void;
@@ -132,6 +134,7 @@ export function createVM(opts: VMOptions): VMApi {
       if (text) emulator.keyboard_send_text(text);
       emulator.keyboard_send_scancodes([0x1c, 0x9c]); // Enter / Enter-release
     },
+    sendScancodes: (codes) => emulator.keyboard_send_scancodes(codes),
     isAlive,
     setScale: (n) => emulator.screen_set_scale(n, n),
     saveState: () => emulator.save_state(),

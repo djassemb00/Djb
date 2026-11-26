@@ -50,6 +50,8 @@ export function MachineView() {
   const [error, setError] = useState<string | null>(null);
   const [showToast, setShowToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
+  const [showKeys, setShowKeys] = useState(false);
+  const padRef = useRef<HTMLInputElement | null>(null);
 
   const images = [...BUILTIN_IMAGES, ...userImages];
   const active = images.find((i) => i.id === activeImageId) ?? BUILTIN_IMAGES[0];
@@ -228,6 +230,16 @@ export function MachineView() {
           <span className={cx('led', vmState === 'running' && 'on')} />
           <span className="tiny">{stateLabel(vmState, busy ? phase : 'ready')}</span>
         </div>
+        <button
+          className="btn ghost"
+          title="اختصارات لوحة المفاتيح"
+          onClick={() => {
+            setShowKeys((v) => !v);
+            sfx.tap();
+          }}
+        >
+          <Keyboard />
+        </button>
         <div className="machine-tools">
           <button className={cx('btn ghost', paused && 'primary')} onClick={togglePause} title="إيقاف/تشغيل مؤقت">
             {paused ? <Play /> : <Pause />}
@@ -264,6 +276,37 @@ export function MachineView() {
             aria-label="شاشة الجهاز المحاكى"
           >
             <div className="crt-screen" ref={containerRef} />
+            {/* phones: focusing this raises the on-screen keyboard for the guest */}
+            <input
+              ref={padRef}
+              className="emu-pad"
+              aria-label="لوحة مفاتيح الجهاز"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              onInput={(e) => {
+                const el = e.currentTarget;
+                if (el.value) {
+                  vmRef.current?.sendText(el.value);
+                  el.value = '';
+                }
+              }}
+              onKeyDown={(e) => {
+                const vm = vmRef.current;
+                if (!vm) return;
+                if (e.key === 'Enter') {
+                  vm.sendLine('');
+                  e.preventDefault();
+                } else if (e.key === 'Backspace') {
+                  vm.sendScancodes([0x0e, 0x8e]);
+                  e.preventDefault();
+                } else if (e.key === 'Escape') {
+                  vm.sendScancodes([0x01, 0x81]);
+                  e.preventDefault();
+                }
+              }}
+            />
             <div className="crt-glass" />
             {busy && (
               <div className="crt-overlay">
@@ -396,6 +439,35 @@ export function MachineView() {
           </div>
         </aside>
       </div>
+
+      {showKeys && (
+        <div className="keys-sheet" onClick={() => setShowKeys(false)}>
+          <div className="keys-card" onClick={(e) => e.stopPropagation()}>
+            <b>لوحة المفاتيح للجهاز</b>
+            <div className="keys-grid">
+              {[
+                ['اكتب', 'يرسل الحروف إلى الجهاز'],
+                ['Enter', 'تنفيذ الأمر (في DOS)'],
+                ['Backspace', 'حذف حرف'],
+                ['Tab', 'ينقل التركيز داخل الجهاز'],
+                ['Esc', 'إلغاء/خروج'],
+                ['F2', 'داخل الجهاز: يفتح التطبيقات'],
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <code>{k}</code>
+                  <span className="tiny muted">{v}</span>
+                </div>
+              ))}
+            </div>
+            <span className="tiny muted">
+              على الهاتف: انقر على الشاشة ثم استخدم صندوق الأوامر أو لوحة المفاتيح التي تظهر.
+            </span>
+            <button className="btn" onClick={() => setShowKeys(false)}>
+              إغلاق
+            </button>
+          </div>
+        </div>
+      )}
 
       {showToast && (
         <div className="machine-toast">

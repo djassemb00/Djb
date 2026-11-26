@@ -82,7 +82,9 @@ export const useVM = create<VMStore>()(
     {
       name: 'novaos-vm-v1',
       // never persist the screen/runtime flags: a reload must start on the desk
-      partialize: (s) => ({ scale: s.scale, activeImageId: s.activeImageId, userImages: s.userImages }),
+      // user uploads live on blob: URLs that die with the tab, so only the
+      // scale and the built-in disk choice survive a reload
+      partialize: (s) => ({ scale: s.scale, activeImageId: s.activeImageId }),
     },
   ),
 );
