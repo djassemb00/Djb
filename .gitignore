@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# NovaOS simulator
+os-sim/node_modules
+os-sim/dist
+os-sim/android/.gradle
+os-sim/android/build
+os-sim/android/app/build
+os-sim/android/local.properties
+os-sim/android/.idea
