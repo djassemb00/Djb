@@ -5,6 +5,7 @@
 # build intermediates
 *.o
 *.elf
+*.S.asm
 *.bin
 *.full
 !nova-desk.img
