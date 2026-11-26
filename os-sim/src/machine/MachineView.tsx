@@ -18,12 +18,15 @@ import {
   Usb,
 } from 'lucide-react';
 import { createVM, loadImage, type VMApi, type VMState } from '../system/vm';
+import { deleteDisk, loadDisk, saveDisk } from '../system/diskStore';
 import { BUILTIN_IMAGES, useVM, type MachineImage } from '../store/useVM';
 import { sfx } from '../system/sound';
 import { cx } from '../system/cx';
 
 /** size of the NovaFS IDE disk handed to the guest (NovaDesk only) */
 const NOVA_DATA_BYTES = 4 * 1024 * 1024;
+/** IndexedDB key holding the guest's file system between sessions */
+const DATA_DISK_KEY = 'novadesk-novafs';
 
 export function MachineView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -54,6 +57,7 @@ export function MachineView() {
   const [showToast, setShowToast] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
   const [showKeys, setShowKeys] = useState(false);
+  const [storedAt, setStoredAt] = useState<number | null>(null);
   const padRef = useRef<HTMLInputElement | null>(null);
 
   const images = [...BUILTIN_IMAGES, ...userImages];
@@ -63,6 +67,17 @@ export function MachineView() {
     setShowToast(msg);
     window.setTimeout(() => setShowToast(null), 2600);
   };
+
+  /** copy the guest's NovaFS disk into IndexedDB (cheap, 4 MB) */
+  const persistDisk = useCallback(async () => {
+    const vm = vmRef.current;
+    if (!vm) return;
+    const bytes = vm.getDataDisk();
+    if (!bytes) return;
+    await saveDisk(DATA_DISK_KEY, bytes);
+    setStoredAt(Date.now());
+  }, []);
+
 
   /* ---------------- boot the machine ---------------- */
   const boot = useCallback(async () => {
@@ -79,6 +94,10 @@ export function MachineView() {
     setError(null);
     try {
       const image = await loadImage(active.path, setLoadPct);
+      const isNovaDesk = active.id === 'novadesk';
+      // restore the guest's file system before the machine starts, so the
+      // first ATA read already sees the user's files
+      const savedDisk = isNovaDesk ? await loadDisk(DATA_DISK_KEY) : null;
       setPhase('booting');
       const vm = createVM({
         container: host,
@@ -86,7 +105,8 @@ export function MachineView() {
         slot: active.slot,
         memoryMB: active.memoryMB,
         // NovaDesk ships NovaFS on an IDE disk so files survive a reboot
-        dataDiskBytes: active.id === 'novadesk' ? NOVA_DATA_BYTES : 0,
+        dataDiskBytes: isNovaDesk ? NOVA_DATA_BYTES : 0,
+        dataDisk: savedDisk ?? undefined,
         onSerial: pushSerial,
         onState: setVmState,
       });
@@ -139,10 +159,33 @@ export function MachineView() {
     vmRef.current?.setScale(scale);
   }, [scale]);
 
+  // NovaFS is written by the guest through ATA; there is no "file closed"
+  // event, so a slow timer snapshots the disk and the tab close flushes it.
+  useEffect(() => {
+    if (screen !== 'machine' || !booted || active.id !== 'novadesk') return;
+    const id = window.setInterval(() => void persistDisk(), 8000);
+    const flush = () => void persistDisk();
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHidden);
+      flush();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, booted, active.id, persistDisk]);
+
   /* ---------------- toolbar actions ---------------- */
   const restart = () => {
     sfx.open();
-    void vmRef.current?.restart();
+    const vm = vmRef.current;
+    const bytes = vm?.getDataDisk();
+    if (bytes) void saveDisk(DATA_DISK_KEY, bytes).then(() => vm?.restart());
+    else void vm?.restart();
     toast('إعادة تشغيل الجهاز');
   };
 
@@ -183,6 +226,18 @@ export function MachineView() {
     URL.revokeObjectURL(url);
     sfx.open();
     toast('حُفظ قرص الملفات — أعده بـ «قرص بيانات»');
+  };
+
+  /** throw the guest's file system away and start from a blank disk */
+  const resetFiles = async () => {
+    const vm = vmRef.current;
+    if (!vm) return;
+    await deleteDisk(DATA_DISK_KEY);
+    setStoredAt(null);
+    toast('حُذف قرص الملفات — سيُقلع الجهاز بقرص فاضي');
+    const bytes = vm.getDataDisk();
+    if (bytes) bytes.fill(0);
+    window.setTimeout(() => void vm.restart(), 300);
   };
 
   const pickFile = () => fileRef.current?.click();
@@ -429,6 +484,11 @@ export function MachineView() {
           <button className="btn" style={{ marginTop: 8 }} onClick={pickFile}>
             <Usb /> إقلاع قرص من الجهاز
           </button>
+          {active.id === 'novadesk' && (
+            <button className="btn" style={{ marginTop: 6 }} onClick={() => void resetFiles()}>
+              <RotateCcw /> مسح ملفات الجهاز
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -462,6 +522,12 @@ export function MachineView() {
               <div>
                 <span>قرص الملفات</span>
                 <b>NovaFS · {Math.round(NOVA_DATA_BYTES / 1048576)} MB</b>
+              </div>
+            )}
+            {active.id === 'novadesk' && (
+              <div>
+                <span>الحفظ التلقائي</span>
+                <b>{storedAt ? 'محفوظ في المتصفح' : 'ينتظر أول حفظ'}</b>
               </div>
             )}
             <div>

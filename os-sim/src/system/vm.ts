@@ -18,6 +18,8 @@ export interface VMOptions {
   slot?: 'fda' | 'hda' | 'cdrom';
   /** blank data disk for NovaFS, attached as the primary IDE master */
   dataDiskBytes?: number;
+  /** initial contents for the data disk (a disk restored from storage) */
+  dataDisk?: Uint8Array;
   memoryMB?: number;
   onSerial?: (text: string) => void;
   onState?: (state: VMState) => void;
@@ -60,7 +62,15 @@ export function createVM(opts: VMOptions): VMApi {
   // The guest's own file system lives on an IDE disk. v86 mirrors writes into
   // this ArrayBuffer, so we can hand the bytes back as a downloadable image.
   const dataBytes = opts.dataDiskBytes ?? 0;
-  const dataDisk = dataBytes > 0 ? new Uint8Array(dataBytes) : null;
+  const restored = opts.dataDisk && opts.dataDisk.byteLength > 0 ? opts.dataDisk : null;
+  let dataDisk: Uint8Array | null = null;
+  if (restored) {
+    // the disk geometry must stay stable between sessions: pad or trim to size
+    dataDisk = new Uint8Array(dataBytes > 0 ? dataBytes : restored.byteLength);
+    dataDisk.set(restored.subarray(0, dataDisk.byteLength));
+  } else if (dataBytes > 0) {
+    dataDisk = new Uint8Array(dataBytes);
+  }
 
   const emulator = new V86({
     wasm_path: new URL(ROMS.wasm, window.location.href).href,
