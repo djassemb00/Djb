@@ -36,6 +36,92 @@ static inline u8 inb(u16 p) {
 }
 static inline void outw(u16 p, u16 v) { __asm__ volatile("outw %0,%1" ::"a"(v), "Nd"(p)); }
 static inline void io_wait(void) { outb(0x80, 0); }
+static inline void insl(u16 p, void *buf, u32 words) {
+  __asm__ volatile("rep insl" : "+D"(buf), "+c"(words) : "d"(p) : "memory");
+}
+static inline void outsl(u16 p, const void *buf, u32 words) {
+  __asm__ volatile("rep outsl" : "+S"(buf), "+c"(words) : "d"(p) : "memory");
+}
+
+/* ------------------------------------------------------------------ */
+/*  ATA PIO (primary master): the guest's data disk                    */
+/* ------------------------------------------------------------------ */
+#define ATA_DATA 0x1F0
+#define ATA_ERR 0x1F1
+#define ATA_SECCOUNT 0x1F2
+#define ATA_LBA0 0x1F3
+#define ATA_LBA1 0x1F4
+#define ATA_LBA2 0x1F5
+#define ATA_DRIVE 0x1F6
+#define ATA_STATUS 0x1F7
+#define ATA_CMD 0x1F7
+#define ATA_SR_BSY 0x80
+#define ATA_SR_DRDY 0x40
+#define ATA_SR_DF 0x20
+#define ATA_SR_DRQ 0x08
+#define ATA_SR_ERR 0x01
+
+/* 0 = no disk, 1 = ready, -1 = failed */
+static int ata_ready(void) {
+  for (int spin = 0; spin < 100000; spin++)
+    if (!(inb(ATA_STATUS) & ATA_SR_BSY)) break;
+  outb(ATA_DRIVE, 0xA0);                 /* master, LBA */
+  for (int i = 0; i < 4; i++) io_wait();
+  outb(ATA_SECCOUNT, 0);
+  outb(ATA_LBA0, 0);
+  outb(ATA_LBA1, 0);
+  outb(ATA_LBA2, 0);
+  outb(ATA_CMD, 0xEC);                   /* IDENTIFY */
+  u8 st = inb(ATA_STATUS);
+  if (st == 0) return 0;                 /* floating bus: no drive */
+  for (int spin = 0; spin < 100000; spin++) {
+    st = inb(ATA_STATUS);
+    if (!(st & ATA_SR_BSY) && (st & (ATA_SR_DRQ | ATA_SR_ERR))) break;
+  }
+  if (st & ATA_SR_ERR) return -1;
+  if (!(st & ATA_SR_DRQ)) return -1;
+  for (int i = 0; i < 256; i++) (void)inb(ATA_DATA);   /* drain identify page */
+  return 1;
+}
+
+/* one sector (512 bytes) at LBA. both directions poll, so no IRQ needed. */
+static int ata_read(u32 lba, void *buf) {
+  for (int spin = 0; spin < 200000; spin++)
+    if (!(inb(ATA_STATUS) & ATA_SR_BSY)) break;
+  outb(ATA_DRIVE, (u8)(0xE0 | ((lba >> 24) & 0x0F)));
+  outb(ATA_SECCOUNT, 1);
+  outb(ATA_LBA0, (u8)(lba & 0xFF));
+  outb(ATA_LBA1, (u8)((lba >> 8) & 0xFF));
+  outb(ATA_LBA2, (u8)((lba >> 16) & 0xFF));
+  outb(ATA_CMD, 0x20);
+  for (int spin = 0; spin < 200000; spin++) {
+    u8 st = inb(ATA_STATUS);
+    if (st & ATA_SR_ERR) return 0;
+    if (!(st & ATA_SR_BSY) && (st & ATA_SR_DRQ)) { insl(ATA_DATA, buf, 128); return 1; }
+  }
+  return 0;
+}
+
+static int ata_write(u32 lba, const void *buf) {
+  for (int spin = 0; spin < 200000; spin++)
+    if (!(inb(ATA_STATUS) & ATA_SR_BSY)) break;
+  outb(ATA_DRIVE, (u8)(0xE0 | ((lba >> 24) & 0x0F)));
+  outb(ATA_SECCOUNT, 1);
+  outb(ATA_LBA0, (u8)(lba & 0xFF));
+  outb(ATA_LBA1, (u8)((lba >> 8) & 0xFF));
+  outb(ATA_LBA2, (u8)((lba >> 16) & 0xFF));
+  outb(ATA_CMD, 0x30);
+  for (int spin = 0; spin < 200000; spin++) {
+    u8 st = inb(ATA_STATUS);
+    if (st & ATA_SR_ERR) return 0;
+    if (!(st & ATA_SR_BSY) && (st & ATA_SR_DRQ)) {
+      outsl(ATA_DATA, buf, 128);
+      outb(ATA_CMD, 0xE7);               /* FLUSH CACHE */
+      return 1;
+    }
+  }
+  return 0;
+}
 static inline void cli(void) { __asm__ volatile("cli"); }
 static inline void sti(void) { __asm__ volatile("sti"); }
 
@@ -418,6 +504,8 @@ static int bas_row = 0;
 static char bas_line[48] = "";
 static int bas_sample_idx = 0;
 static int bas_started = 0;
+static char bas_src[8192];             /* last program run, what SAVE writes */
+static char bas_file[16] = "PROG.BAS"; /* current file name for SAVE/LOAD */
 static u32 blink_state = 0;
 static const char *bas_samples[] = {
     "CLS;PRINT \"NOVA BASIC 1.0\";PRINT \"16X16 FRAMEBUFFER\";LINE 2;PSET 3,4;PSET 4,5;PSET 5,6;PSET 8,7;LINE 12;BEEP;PRINT \"READY.\";END",
@@ -425,7 +513,194 @@ static const char *bas_samples[] = {
     "CLS;PRINT \"SYSTEM MONITOR\";LAUNCH monitor;BEEP;PRINT \"MONITOR UP\";END",
 };
 
+/* ------------------------------------------------------------------ */
+/*  NovaFS: a tiny file system on the ATA data disk                    */
+/* ------------------------------------------------------------------ */
+/*  sector 0        superblock {magic, version, count, reserved}       */
+/*  sector 1        free-sector bitmap (bit 0 reserved for the super)  */
+/*  sectors 2..5    directory: 64 entries x 16 bytes = 2048 bytes      */
+/*  sectors 8..     file data, one or more 512-byte sectors            */
+/*      entry = { char name[12]; u8 start; u8 pad; u16 size; }         */
+#define NFS_MAGIC 0x5341564Eu          /* "NVAS" little endian */
+#define NFS_DIR_SEC 2
+#define NFS_DIR_SECTORS 4
+#define NFS_DIR_MAX 64
+#define NFS_DATA_SEC 8
+#define NFS_MAX_SEC 240                /* sectors 8..247: 120 KiB, fits in u8 */
+#define NFS_MAX_SIZE 8192              /* bytes per file */
+
+typedef struct __attribute__((packed)) {
+  u32 magic;
+  u16 version;
+  u16 count;
+  u32 reserved;
+} NfsSuper;
+
+typedef struct __attribute__((packed)) {
+  char name[12];                       /* "NAME    EXT", blank padded */
+  u8 start;                            /* first data sector, 0 = unused */
+  u8 pad;
+  u16 size;                            /* byte length */
+} NfsEnt;
+
+static u8 nfs_sec[512];
+static u8 nfs_dir[NFS_DIR_SECTORS * 512];
+static int nfs_ok = -1;                /* -1 unknown, 0 no disk, 1 ready */
+static char nfs_last[40];              /* last error/status, shown by the UI */
+
+static NfsEnt *nfs_ent(int i) { return (NfsEnt *)(nfs_dir + i * sizeof(NfsEnt)); }
+
+/* "readme.txt" -> "README  TXT" (8.3, upper case, blank padded) */
+static void nfs_name8(const char *src, char *dst) {
+  const char *dot = 0;
+  for (const char *p = src; *p; p++) if (*p == '.') dot = p;
+  int i = 0;
+  for (const char *p = src; *p; p++) {
+    if (dot && p >= dot) break;
+    char ch = *p;
+    if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
+    if (ch == ' ') continue;
+    if (i < 8) dst[i++] = ch;
+  }
+  while (i < 8) dst[i++] = ' ';
+  int e = 8;
+  if (dot)
+    for (const char *p = dot + 1; *p; p++) {
+      char ch = *p;
+      if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
+      if (e < 11) dst[e++] = ch;
+    }
+  while (e < 11) dst[e++] = ' ';
+  dst[11] = 0;
+}
+
+static void nfs_zero(u8 *p, int n) { for (int i = 0; i < n; i++) p[i] = 0; }
+
+static int nfs_format(void) {
+  nfs_zero(nfs_sec, 512);
+  NfsSuper *sb = (NfsSuper *)nfs_sec;
+  sb->magic = NFS_MAGIC;
+  sb->version = 1;
+  sb->count = 0;
+  if (!ata_write(0, nfs_sec)) return 0;
+  nfs_zero(nfs_dir, NFS_DIR_SECTORS * 512);
+  for (int s = 0; s < NFS_DIR_SECTORS; s++)
+    if (!ata_write(NFS_DIR_SEC + s, nfs_dir + s * 512)) return 0;
+  nfs_zero(nfs_sec, 512);                     /* bitmap: everything free */
+  if (!ata_write(1, nfs_sec)) return 0;
+  return 1;
+}
+
+/* mount, formatting a blank disk on first use */
+static int nfs_init(void) {
+  if (nfs_ok >= 0) return nfs_ok;
+  nfs_ok = 0;
+  if (ata_ready() != 1) return 0;
+  if (!ata_read(0, nfs_sec)) return 0;
+  NfsSuper *sb = (NfsSuper *)nfs_sec;
+  int fresh = (sb->magic != NFS_MAGIC);
+  if (fresh && !nfs_format()) return 0;
+  for (int s = 0; s < NFS_DIR_SECTORS; s++)
+    if (!ata_read(NFS_DIR_SEC + s, nfs_dir + s * 512)) return 0;
+  nfs_ok = 1;
+  return 1;
+}
+
+/* the entry whose name matches (names are already canonical), or -1 */
+static int nfs_find(const char *name8) {
+  if (!nfs_init()) return -1;
+  for (int i = 0; i < NFS_DIR_MAX; i++)
+    if (!strcmp_ci(nfs_ent(i)->name, name8) && nfs_ent(i)->size) return i;
+  return -1;
+}
+
+static int nfs_write_dir(void) {
+  for (int s = 0; s < NFS_DIR_SECTORS; s++)
+    if (!ata_write(NFS_DIR_SEC + s, nfs_dir + s * 512)) return 0;
+  return 1;
+}
+
+/* pick a free run of `n` sectors: first fit over the whole data area */
+static int nfs_alloc(int n) {
+  for (int s = 0; s <= NFS_MAX_SEC - n; s++) {
+    int start = NFS_DATA_SEC + s;
+    int clash = 0;
+    for (int i = 0; i < NFS_DIR_MAX && !clash; i++) {
+      NfsEnt *e = nfs_ent(i);
+      if (!e->size) continue;
+      int first = e->start;
+      int last = e->start + (e->size + 511) / 512 - 1;
+      if (start <= last && start + n - 1 >= first) clash = 1;
+    }
+    if (!clash) return start;
+  }
+  return -1;
+}
+
+/* save `len` bytes as `name`; replaces an existing file of the same name */
+static int nfs_save(const char *name, const u8 *data, int len) {
+  if (!nfs_init()) { scopy(nfs_last, "no data disk", sizeof nfs_last); return 0; }
+  if (len <= 0 || len > NFS_MAX_SIZE) { scopy(nfs_last, "file too large", sizeof nfs_last); return 0; }
+  char n8[12];
+  nfs_name8(name, n8);
+  int idx = nfs_find(n8);
+  if (idx >= 0) {                        /* overwrite: free the old run first */
+    nfs_ent(idx)->size = 0;
+    nfs_ent(idx)->start = 0;
+  } else {
+    for (int i = 0; i < NFS_DIR_MAX; i++) if (!nfs_ent(i)->size) { idx = i; break; }
+    if (idx < 0) { scopy(nfs_last, "directory full", sizeof nfs_last); return 0; }
+    scopy(nfs_ent(idx)->name, n8, 12);
+  }
+  int nsec = (len + 511) / 512;
+  int start = nfs_alloc(nsec);
+  if (start < 0) { scopy(nfs_last, "disk full", sizeof nfs_last); return 0; }
+  for (int s = 0; s < nsec; s++) {
+    nfs_zero(nfs_sec, 512);
+    int off = s * 512;
+    for (int i = 0; i < 512 && off + i < len; i++) nfs_sec[i] = data[off + i];
+    if (!ata_write((u32)(start + s), nfs_sec)) { scopy(nfs_last, "write error", sizeof nfs_last); return 0; }
+  }
+  nfs_ent(idx)->start = (u8)start;
+  nfs_ent(idx)->size = (u16)len;
+  if (!nfs_write_dir()) { scopy(nfs_last, "write error", sizeof nfs_last); return 0; }
+  return 1;
+}
+
+/* read a file into `out` (max `cap` bytes); returns the byte count or -1 */
+static int nfs_load(const char *name, u8 *out, int cap) {
+  if (!nfs_init()) { scopy(nfs_last, "no data disk", sizeof nfs_last); return -1; }
+  char n8[12];
+  nfs_name8(name, n8);
+  int idx = nfs_find(n8);
+  if (idx < 0) { scopy(nfs_last, "not found", sizeof nfs_last); return -1; }
+  int len = nfs_ent(idx)->size;
+  if (len > cap) len = cap;
+  int start = nfs_ent(idx)->start;
+  int got = 0;
+  for (int s = 0; s * 512 < len; s++) {
+    if (!ata_read((u32)(start + s), nfs_sec)) { scopy(nfs_last, "read error", sizeof nfs_last); return -1; }
+    for (int i = 0; i < 512 && got < len; i++) out[got++] = nfs_sec[i];
+  }
+  return got;
+}
+
+/* remove a file; returns 1 on success */
+static int nfs_delete(const char *name) {
+  if (!nfs_init()) return 0;
+  char n8[12];
+  nfs_name8(name, n8);
+  int idx = nfs_find(n8);
+  if (idx < 0) { scopy(nfs_last, "not found", sizeof nfs_last); return 0; }
+  nfs_ent(idx)->size = 0;
+  nfs_ent(idx)->start = 0;
+  nfs_zero((u8 *)nfs_ent(idx)->name, 12);
+  if (!nfs_write_dir()) return 0;
+  return 1;
+}
+
 static void bas_run(const char *program);
+static void bas_exec(const char *program, int clear);
 static void speaker_tone(u32 hz);
 static void open_app(int app);
 
@@ -708,21 +983,58 @@ static void app_files(Win *w) {
   fill(cx + 1, cy + 1, cw - 2, 14, C_BTN);
   draw_text(cx + 5, cy + 4, C_TEXT, "Address:");
   fill(cx + 52, cy + 3, cw - 58, 10, C_TEXTBRIGHT);
-  draw_text(cx + 56, cy + 4, C_NAVY, "A:\\");
-  /* list */
-  const char *items[] = {"[A:]  Floppy 1.44M", "[C:]  NovaDisk 128M", "  AUTOEXEC.BAT", "  CONFIG.SYS",
-                         "  NOVA.EXE", "  DOCS"};
-  const char *sizes[] = {"1.44 MB", "128 MB", "412 B", "96 B", "24 KB", "<DIR>"};
-  for (int i = 0; i < 6; i++) {
-    int ry = cy + 20 + i * 18;
-    if (ry + 16 > cy + ch - 14) break;
-    if (i == 1) fill(cx + 3, ry - 2, cw - 6, 17, C_SEL);
-    draw_icon16(cx + 6, ry, i < 2 ? APP_FILES : APP_EDITOR, 1);
-    draw_text(cx + 30, ry + 3, C_NAVY, items[i]);
-    draw_text(cx + cw - 60, ry + 3, C_TEXT_DIM, sizes[i]);
+  draw_text(cx + 56, cy + 4, C_NAVY, "C:\\NOVA");
+
+  int mounted = nfs_init();
+  int total = 0, free_kb = NFS_MAX_SEC / 2;
+  int rows = (ch - 34) / 16;
+  if (rows < 1) rows = 1;
+
+  if (!mounted) {
+    draw_text(cx + 8, cy + 26, C_MAGENTA, "no data disk attached");
+    draw_text(cx + 8, cy + 40, C_TEXT_DIM, "boot NovaDesk with a NovaFS disk");
+  } else {
+    int shown = 0;
+    /* first the pseudo entries, so the list still reads like a file manager */
+    const char *fixed[] = {"[A:]  Floppy 1.44M", "[C:]  NovaFS 120K"};
+    const char *fixedSize[] = {"1.44 MB", "120 KB"};
+    for (int i = 0; i < 2 && shown < rows; i++, shown++) {
+      int ry = cy + 20 + shown * 16;
+      if (i == 1) fill(cx + 3, ry - 2, cw - 6, 15, C_SEL);
+      draw_icon16(cx + 6, ry, APP_FILES, 1);
+      draw_text(cx + 30, ry + 3, C_NAVY, fixed[i]);
+      draw_text(cx + cw - 54, ry + 3, C_TEXT_DIM, fixedSize[i]);
+    }
+    /* then the real directory */
+    for (int i = 0; i < NFS_DIR_MAX && shown < rows; i++) {
+      NfsEnt *e = nfs_ent(i);
+      if (!e->size) continue;
+      int ry = cy + 20 + shown * 16;
+      total++;
+      draw_icon16(cx + 6, ry, APP_EDITOR, 1);
+      draw_text(cx + 30, ry + 3, C_NAVY, e->name);
+      char sz[16];
+      for (int q = 0; q < 16; q++) sz[q] = 0;
+      itoa_(e->size, sz);
+      sappend(sz, " B", sizeof sz);
+      draw_text(cx + cw - 54, ry + 3, C_TEXT_DIM, sz);
+      shown++;
+    }
+    if (total == 0) draw_text(cx + 30, cy + 20 + 2 * 16 + 3, C_TEXT_DIM, "(empty: SAVE from BASIC)");
+    /* status bar: free space is the disk minus every file's rounded sectors */
+    int used_sec = 0;
+    for (int i = 0; i < NFS_DIR_MAX; i++)
+      if (nfs_ent(i)->size) used_sec += (nfs_ent(i)->size + 511) / 512;
+    free_kb = (NFS_MAX_SEC - used_sec) / 2;
   }
+
   fill(cx + 1, cy + ch - 13, cw - 2, 11, C_BTN);
-  draw_text(cx + 5, cy + ch - 11, C_TEXT, "6 object(s)   1.44 MB free");
+  char st[48];
+  itoa_(total, st);
+  sappend(st, " file(s)   ", sizeof st);
+  itoa_(free_kb, st);
+  sappend(st, " KB free", sizeof st);
+  draw_text(cx + 5, cy + ch - 11, C_TEXT, st);
 }
 
 static void app_monitor(Win *w) {
@@ -788,6 +1100,11 @@ static void app_about(Win *w) {
   draw_text(cx + 20, cy + 128, C_ACCENT, "Click an icon to launch a program.");
 }
 
+static void sh_line(const char *t) {
+  scopy(shell_out[shell_rows % SHELL_ROWS], t, 44);
+  shell_rows++;
+}
+
 static void shell_exec(const char *cmd) {
   const char *c = cmd;
   while (*c == ' ') c++;
@@ -814,10 +1131,72 @@ static void shell_exec(const char *cmd) {
     scopy(shell_out[shell_rows % SHELL_ROWS], "  640K conventional, 21K used", 44);
     shell_rows++;
   } else if (!strcmp_ci(first, "dir")) {
-    scopy(shell_out[shell_rows % SHELL_ROWS], " NOVA.EXE     AUTOEXEC.BAT", 44);
-    shell_rows++;
-    scopy(shell_out[shell_rows % SHELL_ROWS], " CONFIG.SYS   DOCS <DIR>", 44);
-    shell_rows++;
+    if (!nfs_init()) {
+      sh_line(" C: no data disk attached");
+    } else {
+      sh_line(" Directory of C:\\NOVA");
+      int shown = 0;
+      for (int i = 0; i < NFS_DIR_MAX; i++) {
+        NfsEnt *e = nfs_ent(i);
+        if (!e->size) continue;
+        char b[44];
+        for (int q = 0; q < 44; q++) b[q] = 0;
+        scopy(b, " ", 2);
+        sappend(b, e->name, 44);
+        int L = slen(b);
+        while (L < 22) b[L++] = ' ';
+        b[L] = 0;
+        char nbuf[12];
+        for (int q = 0; q < 12; q++) nbuf[q] = 0;
+        itoa_(e->size, nbuf);
+        sappend(b, nbuf, 44);
+        sappend(b, " bytes", 44);
+        sh_line(b);
+        shown++;
+      }
+      if (!shown) sh_line(" (empty: SAVE from BASIC)");
+      char sum[44];
+      itoa_(shown, sum);
+      sappend(sum, " file(s) on NovaFS", 44);
+      sh_line(sum);
+    }
+  } else if (!strcmp_ci(first, "del") || !strcmp_ci(first, "erase")) {
+    if (!arg[0]) sh_line("usage: del NAME");
+    else if (nfs_delete(arg)) {
+      char b[44];
+      scopy(b, "deleted ", 44);
+      sappend(b, arg, 44);
+      sh_line(b);
+    } else {
+      sh_line(nfs_last);
+    }
+  } else if (!strcmp_ci(first, "format")) {
+    if (!nfs_init()) sh_line(" no data disk attached");
+    else if (nfs_format()) {
+      nfs_ok = -1;
+      sh_line(" NovaFS formatted: all files gone");
+    } else sh_line(nfs_last);
+  } else if (!strcmp_ci(first, "type")) {
+    if (!arg[0]) {
+      sh_line(" AUTOEXEC.BAT:");
+      sh_line("  BASIC /RUN");
+    } else {
+      static u8 tb[NFS_MAX_SIZE + 1];
+      int got = nfs_load(arg, tb, NFS_MAX_SIZE);
+      if (got < 0) sh_line(nfs_last);
+      else {
+        tb[got] = 0;
+        /* show the file line by line, 42 chars at a time */
+        for (int off = 0; off < got; ) {
+          char b[44];
+          int i = 0;
+          while (off < got && tb[off] != '\n' && i < 42) b[i++] = (char)tb[off++];
+          if (off < got && tb[off] == '\n') off++;
+          b[i] = 0;
+          sh_line(b);
+        }
+      }
+    }
   } else if (!strcmp_ci(first, "echo")) {
     scopy(shell_out[shell_rows % SHELL_ROWS], arg, 44);
     shell_rows++;
@@ -830,11 +1209,17 @@ static void shell_exec(const char *cmd) {
     shell_rows++;
   } else if (!strcmp_ci(first, "basic")) open_app(APP_BASIC);
   else if (!strcmp_ci(first, "run")) { open_app(APP_BASIC); bas_run(bas_samples[0]); }
-  else if (!strcmp_ci(first, "type")) {
-    scopy(shell_out[shell_rows % SHELL_ROWS], "AUTOEXEC.BAT", 44);
-    shell_rows++;
-    scopy(shell_out[shell_rows % SHELL_ROWS], " BASIC /RUN", 44);
-    shell_rows++;
+  else if (!strcmp_ci(first, "files")) open_app(APP_FILES);
+  else if (!strcmp_ci(first, "save")) {
+    /* save the BASIC console as C:LOG.TXT so files can be seen without BASIC */
+    static char log[NFS_MAX_SIZE];
+    int len = 0;
+    for (int i = 0; i < BASIC_ROWS && len < NFS_MAX_SIZE - 45; i++) {
+      for (int k = 0; bas_out[i][k] && len < NFS_MAX_SIZE - 45; k++) log[len++] = bas_out[i][k];
+      log[len++] = '\n';
+    }
+    if (nfs_save("LOG.TXT", (const u8 *)log, len)) sh_line(" saved C:LOG.TXT");
+    else sh_line(nfs_last);
   } else if (!strcmp_ci(first, "win")) open_app(APP_EDITOR);
   else if (!strcmp_ci(first, "paint")) open_app(APP_PAINT);
   else if (!strcmp_ci(first, "monitor")) open_app(APP_MONITOR);
@@ -875,8 +1260,22 @@ static int music_pos = 0, music_left = 0, music_on = 0;
 /*  NovaBASIC: a small interpreter that really executes on the CPU.    */
 /*  It owns a 16x16 framebuffer and can drive the desktop apps.        */
 /* ------------------------------------------------------------------ */
-static void bas_run(const char *program) {
-  bas_cls();
+/* statements that define a program; meta commands (save/load/files/…) do not
+   become the "current program" so SAVE cannot overwrite it with itself */
+static int bas_is_prog(const char *t) {
+  const char *kws[] = {"print", "pset", "line", "beep", "launch", "cls", "rem"};
+  char kw[12];
+  int n = 0;
+  while (t[n] && t[n] != ' ' && t[n] != ';' && n < 11) { kw[n] = t[n]; n++; }
+  kw[n] = 0;
+  for (int i = 0; i < 7; i++) if (!strcmp_ci(kw, kws[i])) return 1;
+  for (const char *p = t; *p; p++) if (*p == ';') return 1;   /* multi-statement */
+  return 0;
+}
+
+static void bas_exec(const char *program, int clear) {
+  if (clear) bas_cls();
+  if (bas_is_prog(program) && slen(program) < NFS_MAX_SIZE) scopy(bas_src, program, NFS_MAX_SIZE);
   const char *p = program;
   int guard = 0;
   while (*p && guard++ < 2000) {
@@ -928,6 +1327,55 @@ static void bas_run(const char *program) {
       else if (!strcmp_ci(arg, "notepad")) open_app(APP_EDITOR);
       else if (!strcmp_ci(arg, "files")) open_app(APP_FILES);
       else bas_print("? unknown app");
+    } else if (!strcmp_ci(kw, "save")) {
+      if (*arg) scopy(bas_file, arg, sizeof bas_file);
+      if (!bas_src[0]) {
+        bas_print("nothing to save: run a program");
+      } else if (nfs_save(bas_file, (const u8 *)bas_src, slen(bas_src) + 1)) {
+        char b[44];
+        scopy(b, "saved ", 44);
+        sappend(b, bas_file, 44);
+        bas_print(b);
+      } else {
+        bas_print(nfs_last);
+      }
+    } else if (!strcmp_ci(kw, "load")) {
+      if (*arg) scopy(bas_file, arg, sizeof bas_file);
+      static char buf[NFS_MAX_SIZE + 1];
+      int got = nfs_load(bas_file, (u8 *)buf, NFS_MAX_SIZE);
+      if (got < 0) {
+        bas_print(nfs_last);
+      } else {
+        buf[got] = 0;
+        char b[44];
+        scopy(b, "loaded ", 44);
+        sappend(b, bas_file, 44);
+        bas_print(b);
+        bas_run(buf);          /* loading runs the program, like a .BAT */
+      }
+    } else if (!strcmp_ci(kw, "files") || !strcmp_ci(kw, "dir")) {
+      if (!nfs_init()) { bas_print("no data disk"); }
+      else {
+        int shown = 0;
+        for (int i = 0; i < NFS_DIR_MAX; i++) {
+          NfsEnt *e = nfs_ent(i);
+          if (!e->size) continue;
+          char b[44];
+          for (int q = 0; q < 44; q++) b[q] = 0;
+          scopy(b, e->name, 44);
+          int L = slen(b);
+          while (L < 22) b[L++] = ' ';
+          b[L] = 0;
+          char nbuf[12];
+          for (int q = 0; q < 12; q++) nbuf[q] = 0;
+          itoa_(e->size, nbuf);
+          sappend(b, nbuf, 44);
+          sappend(b, " bytes", 44);
+          bas_print(b);
+          shown++;
+        }
+        if (!shown) bas_print("(empty disk)");
+      }
     } else if (!strcmp_ci(kw, "end")) {
       return;
     } else if (!strcmp_ci(kw, "rem")) {
@@ -940,8 +1388,10 @@ static void bas_run(const char *program) {
       return;
     }
   }
-  bas_print("ready");
 }
+
+/* run a whole program: clears the console first, like LIST+RUN */
+static void bas_run(const char *program) { bas_exec(program, 1); }
 
 static void app_basic(Win *w) {
   if (!bas_started) {
@@ -1192,6 +1642,10 @@ static void key_input(char ch) {
       scopy(cmd, bas_line, sizeof cmd);
       bas_line[0] = 0;
       if (cmd[0]) {
+        char echo[48];
+        scopy(echo, "BASIC> ", sizeof echo);
+        sappend(echo, cmd, sizeof echo);
+        bas_print(echo);
         if (!strcmp_ci(cmd, "run")) {
           bas_run(bas_samples[0]);
         } else if (!strcmp_ci(cmd, "samples")) {
@@ -1205,7 +1659,7 @@ static void key_input(char ch) {
           bas_print("keywords: print pset line");
           bas_print("beep launch <app> end");
         } else {
-          bas_run(cmd);
+          bas_exec(cmd, 0);
         }
       }
       dirty = 1;

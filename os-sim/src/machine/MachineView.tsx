@@ -22,6 +22,9 @@ import { BUILTIN_IMAGES, useVM, type MachineImage } from '../store/useVM';
 import { sfx } from '../system/sound';
 import { cx } from '../system/cx';
 
+/** size of the NovaFS IDE disk handed to the guest (NovaDesk only) */
+const NOVA_DATA_BYTES = 4 * 1024 * 1024;
+
 export function MachineView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -82,6 +85,8 @@ export function MachineView() {
         image,
         slot: active.slot,
         memoryMB: active.memoryMB,
+        // NovaDesk ships NovaFS on an IDE disk so files survive a reboot
+        dataDiskBytes: active.id === 'novadesk' ? NOVA_DATA_BYTES : 0,
         onSerial: pushSerial,
         onState: setVmState,
       });
@@ -160,6 +165,24 @@ export function MachineView() {
     a.click();
     URL.revokeObjectURL(url);
     toast('حُفظت صورة حالة الجهاز');
+  };
+
+  /** pull the guest's NovaFS disk out of the VM and save it as a .img file */
+  const saveFiles = () => {
+    const bytes = vmRef.current?.getDataDisk();
+    if (!bytes) {
+      toast('هذا الجهاز لا يملك قرص بيانات');
+      return;
+    }
+    const blob = new Blob([bytes as BlobPart], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'nova-disk.img';
+    a.click();
+    URL.revokeObjectURL(url);
+    sfx.open();
+    toast('حُفظ قرص الملفات — أعده بـ «قرص بيانات»');
   };
 
   const pickFile = () => fileRef.current?.click();
@@ -249,6 +272,9 @@ export function MachineView() {
           </button>
           <button className="btn ghost" onClick={saveSnapshot} title="حفظ صورة حالة">
             <Save />
+          </button>
+          <button className="btn ghost" onClick={saveFiles} title="حفظ ملفات الجهاز (NovaFS)">
+            <Download />
           </button>
           <button className="btn ghost" onClick={pickFile} title="إقلاع قرص من جهازك">
             <Upload />
@@ -432,6 +458,12 @@ export function MachineView() {
               <span>القرص</span>
               <b>{active.slot === 'fda' ? 'Floppy 1.44 MB' : 'IDE'}</b>
             </div>
+            {active.id === 'novadesk' && (
+              <div>
+                <span>قرص الملفات</span>
+                <b>NovaFS · {Math.round(NOVA_DATA_BYTES / 1048576)} MB</b>
+              </div>
+            )}
             <div>
               <span>الصوت</span>
               <b>PC Speaker (PIT ch.2)</b>

@@ -16,6 +16,8 @@ export interface VMOptions {
   image: Uint8Array;
   /** floppy (fda) by default; hda/cdrom for bigger OSes */
   slot?: 'fda' | 'hda' | 'cdrom';
+  /** blank data disk for NovaFS, attached as the primary IDE master */
+  dataDiskBytes?: number;
   memoryMB?: number;
   onSerial?: (text: string) => void;
   onState?: (state: VMState) => void;
@@ -35,6 +37,8 @@ export interface VMApi {
   isAlive: () => boolean;
   setScale: (n: number) => void;
   saveState: () => Promise<ArrayBuffer>;
+  /** current bytes of the NovaFS data disk (empty when none is attached) */
+  getDataDisk: () => Uint8Array | null;
   destroy: () => void;
   getState: () => VMState;
   /** low-level handle, exposed for the toolkit (state snapshots, screenshots…) */
@@ -53,6 +57,11 @@ export function createVM(opts: VMOptions): VMApi {
   let state: VMState = 'starting';
   let serialText = '';
 
+  // The guest's own file system lives on an IDE disk. v86 mirrors writes into
+  // this ArrayBuffer, so we can hand the bytes back as a downloadable image.
+  const dataBytes = opts.dataDiskBytes ?? 0;
+  const dataDisk = dataBytes > 0 ? new Uint8Array(dataBytes) : null;
+
   const emulator = new V86({
     wasm_path: new URL(ROMS.wasm, window.location.href).href,
     bios: { url: new URL(ROMS.bios, window.location.href).href },
@@ -62,6 +71,9 @@ export function createVM(opts: VMOptions): VMApi {
     screen_container: opts.container,
     // v86 derives a name from the buffer object, so it must be a File, not a Blob
     [slot]: { buffer: new File([opts.image as BlobPart], `${slot}-image.img`) },
+    ...(dataDisk
+      ? { hda: { buffer: new File([dataDisk as BlobPart], 'nova-data.img') } }
+      : {}),
     autostart: true,
   } as never);
 
@@ -138,6 +150,15 @@ export function createVM(opts: VMOptions): VMApi {
     isAlive,
     setScale: (n) => emulator.screen_set_scale(n, n),
     saveState: () => emulator.save_state(),
+    getDataDisk: () => {
+      if (!dataDisk) return null;
+      // v86 hands the disk device the same ArrayBuffer we passed in; copy it so
+      // the caller can write a file without racing the emulator
+      const ide = raw.v86?.cpu?.devices?.ide as { primary?: { master?: { buffer?: { buffer?: ArrayBuffer } } } } | undefined;
+      const live = ide?.primary?.master?.buffer?.buffer;
+      const src = live ? new Uint8Array(live) : dataDisk;
+      return new Uint8Array(src);
+    },
     destroy: () => {
       try {
         void emulator.destroy();
