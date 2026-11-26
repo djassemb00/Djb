@@ -26,6 +26,16 @@ export const BUILTIN_IMAGES: MachineImage[] = [
     builtin: true,
     size: 1474560,
   },
+  {
+    id: 'freedos',
+    name: 'FreeDOS 1.x (boot)',
+    path: './images/freedos-boot.img',
+    slot: 'fda',
+    memoryMB: 32,
+    note: 'نظام DOS حر 100% (GPL) يقلع من قرص المرن — جرّب: DIR، VER، VOL',
+    builtin: true,
+    size: 1474560,
+  },
 ];
 
 interface VMStore {

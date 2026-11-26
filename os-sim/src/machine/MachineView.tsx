@@ -47,6 +47,7 @@ export function MachineView() {
   const [vmState, setVmState] = useState<VMState>('starting');
   const [error, setError] = useState<string | null>(null);
   const [showToast, setShowToast] = useState<string | null>(null);
+  const [typed, setTyped] = useState('');
 
   const images = [...BUILTIN_IMAGES, ...userImages];
   const active = images.find((i) => i.id === activeImageId) ?? BUILTIN_IMAGES[0];
@@ -261,9 +262,31 @@ export function MachineView() {
               <Keyboard size={12} /> اكتب من لوحة المفاتيح
             </span>
             <span className="row" style={{ gap: 6 }}>
-              <MousePointerClick size={12} /> انقر أو اسحب للتحكم بالمؤشر
+              <MousePointerClick size={12} /> انقر على الشاشة أولاً لتوجيه الإدخال
             </span>
           </div>
+
+          <form
+            className="emu-sendbar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const vm = vmRef.current;
+              if (!vm) return;
+              vm.sendLine(typed);
+              setTyped('');
+            }}
+          >
+            <input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="أرسل أمرًا إلى الجهاز… (DIR ثم Enter)"
+              spellCheck={false}
+              dir="ltr"
+            />
+            <button className="btn primary" type="submit">
+              إرسال ⏎
+            </button>
+          </form>
         </div>
 
         <aside className="machine-side">
