@@ -190,7 +190,6 @@ static void set_palette(void) {
 /* ------------------------------------------------------------------ */
 void serial_puts32(const char *s);
 static void log(const char *s) { serial_puts32(s); }
-static void log_c(char c) { char b[2]; b[0] = c; b[1] = 0; serial_puts32(b); }
 static void log_hex(u32 v) {
   char buf[12];
   buf[0] = '0';
@@ -373,7 +372,7 @@ static int mbtn = 0;
 static int dirty = 1;
 
 #define MAX_WIN 6
-enum { APP_NONE = 0, APP_EDITOR, APP_PAINT, APP_FILES, APP_MONITOR, APP_ABOUT, APP_DOS, APP_MUSIC };
+enum { APP_NONE = 0, APP_EDITOR, APP_PAINT, APP_FILES, APP_MONITOR, APP_ABOUT, APP_DOS, APP_MUSIC, APP_BASIC };
 
 typedef struct {
   int open;          /* is the window on screen */
@@ -406,6 +405,43 @@ static char shell_line[48] = "";
 #define SHELL_ROWS 14
 static char shell_out[SHELL_ROWS][44];
 static int shell_rows = 0;
+
+/* BASIC: its own 16x16 framebuffer, a console and a program runner */
+#define BASIC_COLS 43
+#define BASIC_ROWS 14
+#define BX 16
+#define BY 16
+static u8 bas_px[BX * BY];
+static u8 bas_pen = C_YELLOW;
+static char bas_out[BASIC_ROWS][BASIC_COLS + 2];
+static int bas_row = 0;
+static char bas_line[48] = "";
+static int bas_sample_idx = 0;
+static int bas_started = 0;
+static u32 blink_state = 0;
+static const char *bas_samples[] = {
+    "CLS;PRINT \"NOVA BASIC 1.0\";PRINT \"16X16 FRAMEBUFFER\";LINE 2;PSET 3,4;PSET 4,5;PSET 5,6;PSET 8,7;LINE 12;BEEP;PRINT \"READY.\";END",
+    "CLS;PRINT \"HELLO FROM X86\";LAUNCH paint;PRINT \"PAINT LAUNCHED\";END",
+    "CLS;PRINT \"SYSTEM MONITOR\";LAUNCH monitor;BEEP;PRINT \"MONITOR UP\";END",
+};
+
+static void bas_run(const char *program);
+static void speaker_tone(u32 hz);
+static void open_app(int app);
+
+static void bas_print(const char *t) {
+  int r = bas_row % BASIC_ROWS;
+  int n = 0;
+  while (t[n] && n < BASIC_COLS) { bas_out[r][n] = t[n]; n++; }
+  bas_out[r][n] = 0;
+  bas_row++;
+}
+
+static void bas_cls(void) {
+  for (int i = 0; i < BX * BY; i++) bas_px[i] = C_BLACK;
+  bas_row = 0;
+  for (int r = 0; r < BASIC_ROWS; r++) bas_out[r][0] = 0;
+}
 
 /* clock */
 static int secs = 0;
@@ -451,6 +487,7 @@ static void open_app(int app) {
       case APP_ABOUT: wins[idx].title = "About NovaDesk"; wins[idx].x = 176; wins[idx].y = 112; wins[idx].w = 312; wins[idx].h = 176; break;
       case APP_DOS: wins[idx].title = "Command Prompt"; wins[idx].x = 120; wins[idx].y = 120; wins[idx].w = 360; wins[idx].h = 188; break;
       case APP_MUSIC: wins[idx].title = "Speaker"; wins[idx].x = 192; wins[idx].y = 100; wins[idx].w = 280; wins[idx].h = 176; break;
+      case APP_BASIC: wins[idx].title = "NovaBASIC"; wins[idx].x = 104; wins[idx].y = 56; wins[idx].w = 380; wins[idx].h = 248; break;
     }
   }
   wins[idx].min = 0;
@@ -477,20 +514,17 @@ static void close_app(int idx) {
 /*  desktop icons (32x32 art, drawn from 16x16 patterns)               */
 /* ------------------------------------------------------------------ */
 typedef struct { int x, y; int app; const char *label; } DeskIcon;
-static DeskIcon icons[6] = {
+static DeskIcon icons[7] = {
     {20, 24, APP_FILES, "My PC"},
     {20, 100, APP_EDITOR, "Notepad"},
     {20, 176, APP_PAINT, "Paint"},
     {20, 252, APP_MONITOR, "Monitor"},
     {150, 24, APP_DOS, "Command"},
-    {150, 100, APP_ABOUT, "About"},
+    {150, 100, APP_BASIC, "BASIC"},
+    {150, 176, APP_ABOUT, "About"},
 };
-#define NICONS 6
+#define NICONS 7
 
-/* 1x1 icon helper: draw at (x,y) with a scale factor */
-static void ipx(int x, int y, int s, int px, int py, u8 c) {
-  fill(x + px * s, y + py * s, s, s, c);
-}
 static void ibox(int x, int y, int s, int px, int py, int w, int h, u8 c) {
   fill(x + px * s, y + py * s, w * s, h * s, c);
 }
@@ -537,6 +571,15 @@ static void draw_icon16(int x, int y, int app, int s) {
       draw_char(x + 6 * s, y + 4 * s, C_TEXTBRIGHT, ':');
       draw_char(x + 9 * s, y + 4 * s, C_TEXTBRIGHT, '>');
       ibox(x, y, s, 2, 10, 8, 1, C_SILVER);
+      break;
+    case APP_BASIC: /* terminal with a yellow cursor */
+      ibox(x, y, s, 0, 1, 16, 14, C_BLACK);
+      ibox(x, y, s, 0, 1, 16, 1, C_GREEN);
+      ibox(x, y, s, 2, 5, 2, 2, C_YELLOW);
+      ibox(x, y, s, 6, 5, 2, 2, C_YELLOW);
+      ibox(x, y, s, 2, 9, 9, 1, C_SILVER);
+      ibox(x, y, s, 2, 11, 6, 1, C_SILVER);
+      ibox(x, y, s, 11, 13, 3, 1, C_ACCENT);
       break;
     case APP_MUSIC:
       ibox(x, y, s, 2, 5, 4, 6, C_DGRAY);
@@ -783,6 +826,15 @@ static void shell_exec(const char *cmd) {
     shell_rows++;
     scopy(shell_out[shell_rows % SHELL_ROWS], "monitor music about exit", 44);
     shell_rows++;
+    scopy(shell_out[shell_rows % SHELL_ROWS], "basic run type", 44);
+    shell_rows++;
+  } else if (!strcmp_ci(first, "basic")) open_app(APP_BASIC);
+  else if (!strcmp_ci(first, "run")) { open_app(APP_BASIC); bas_run(bas_samples[0]); }
+  else if (!strcmp_ci(first, "type")) {
+    scopy(shell_out[shell_rows % SHELL_ROWS], "AUTOEXEC.BAT", 44);
+    shell_rows++;
+    scopy(shell_out[shell_rows % SHELL_ROWS], " BASIC /RUN", 44);
+    shell_rows++;
   } else if (!strcmp_ci(first, "win")) open_app(APP_EDITOR);
   else if (!strcmp_ci(first, "paint")) open_app(APP_PAINT);
   else if (!strcmp_ci(first, "monitor")) open_app(APP_MONITOR);
@@ -806,11 +858,6 @@ static void app_dos(Win *w) {
     if (idx < 0) continue;
     draw_text(cx + 5, cy + 5 + i * 10, C_SILVER, shell_out[idx % SHELL_ROWS]);
   }
-  if ((ticks / 25) & 1) {
-    int row = shell_rows % SHELL_ROWS;
-    int len = slen(shell_out[row]);
-    /* the line being typed lives on the last row */
-  }
   int y = cy + 5 + SHELL_ROWS * 10;
   if (y < cy + ch - 10) {
     draw_text(cx + 5, y, C_TEXTBRIGHT, "C:\\>");
@@ -822,6 +869,120 @@ static void app_dos(Win *w) {
 static const u16 notes_bd[] = {0, 587, 0, 587, 0, 587, 698, 784, 880, 0, 880, 784, 698, 587, 0, 523, 587, 0};
 static const u8 note_len[] = {6, 6, 6, 6, 6, 6, 12, 24, 12, 6, 6, 6, 6, 12, 6, 12, 24, 24};
 static int music_pos = 0, music_left = 0, music_on = 0;
+
+
+/* ------------------------------------------------------------------ */
+/*  NovaBASIC: a small interpreter that really executes on the CPU.    */
+/*  It owns a 16x16 framebuffer and can drive the desktop apps.        */
+/* ------------------------------------------------------------------ */
+static void bas_run(const char *program) {
+  bas_cls();
+  const char *p = program;
+  int guard = 0;
+  while (*p && guard++ < 2000) {
+    while (*p == ' ' || *p == '\n' || *p == ';') p++;
+    if (!*p) break;
+    char st[72];
+    int n = 0;
+    while (p[n] && p[n] != ';' && n < 71) { st[n] = p[n]; n++; }
+    st[n] = 0;
+    p += n;
+
+    char kw[14];
+    int k = 0;
+    while (st[k] && st[k] != ' ' && k < 13) { kw[k] = st[k]; k++; }
+    kw[k] = 0;
+    const char *arg = st + k;
+    while (*arg == ' ') arg++;
+
+    if (!strcmp_ci(kw, "cls")) {
+      bas_cls();
+    } else if (!strcmp_ci(kw, "print")) {
+      if (*arg == '"') {
+        char txt[48];
+        int t = 0;
+        arg++;
+        while (*arg && *arg != '"' && t < 47) txt[t++] = *arg++;
+        txt[t] = 0;
+        bas_print(txt);
+      } else {
+        bas_print(*arg ? arg : "");
+      }
+    } else if (!strcmp_ci(kw, "pset")) {
+      int x = 0, y = 0;
+      while (*arg >= '0' && *arg <= '9') x = x * 10 + (*arg++ - '0');
+      while (*arg == ',' || *arg == ' ') arg++;
+      while (*arg >= '0' && *arg <= '9') y = y * 10 + (*arg++ - '0');
+      if (x >= 0 && x < BX && y >= 0 && y < BY) bas_px[y * BX + x] = bas_pen;
+    } else if (!strcmp_ci(kw, "line")) {
+      int y = 0;
+      while (*arg >= '0' && *arg <= '9') y = y * 10 + (*arg++ - '0');
+      if (y >= 0 && y < BY)
+        for (int x = 0; x < BX; x++) bas_px[y * BX + x] = bas_pen;
+    } else if (!strcmp_ci(kw, "beep")) {
+      speaker_tone(900);
+    } else if (!strcmp_ci(kw, "launch")) {
+      if (!strcmp_ci(arg, "paint")) open_app(APP_PAINT);
+      else if (!strcmp_ci(arg, "music")) open_app(APP_MUSIC);
+      else if (!strcmp_ci(arg, "monitor")) open_app(APP_MONITOR);
+      else if (!strcmp_ci(arg, "notepad")) open_app(APP_EDITOR);
+      else if (!strcmp_ci(arg, "files")) open_app(APP_FILES);
+      else bas_print("? unknown app");
+    } else if (!strcmp_ci(kw, "end")) {
+      return;
+    } else if (!strcmp_ci(kw, "rem")) {
+      /* comment statement: nothing to do */
+    } else {
+      char bad[48];
+      scopy(bad, "?syntax ", sizeof bad);
+      sappend(bad, kw, sizeof bad);
+      bas_print(bad);
+      return;
+    }
+  }
+  bas_print("ready");
+}
+
+static void app_basic(Win *w) {
+  if (!bas_started) {
+    bas_started = 1;
+    bas_print("NovaBASIC 1.0 ready.");
+    bas_print("type RUN / SAMPLES / HELP");
+  }
+  int cx = w->x + WIN_PAD, cy = w->y + TITLE_H + WIN_PAD;
+  int cw = w->w - WIN_PAD * 2, ch = w->h - TITLE_H - WIN_PAD * 2;
+  fill(cx, cy, cw, ch, C_BLACK);
+  bevel(cx, cy, cw, ch, C_BTN_LO, C_BTN_HI);
+
+  /* left panel: the 16x16 framebuffer as 5px cells */
+  int fx = cx + 8, fy = cy + 10;
+  fill(fx - 4, fy - 4, BX * 5 + 8, BY * 5 + 8, C_BLACK);
+  for (int y = 0; y < BY; y++)
+    for (int x = 0; x < BX; x++)
+      fill(fx + x * 5, fy + y * 5, 5, 5, bas_px[y * BX + x]);
+  bevel(fx - 4, fy - 4, BX * 5 + 8, BY * 5 + 8, C_TEXTBRIGHT, C_BTN_LO);
+  draw_text(fx + 8, fy + BY * 5 + 8, C_GREEN, "16x16");
+  draw_text(fx + 8, fy + BY * 5 + 20, C_DGRAY, "5px cell");
+
+  /* right side: scrolling console listing */
+  int tx = fx + BX * 5 + 18;
+  int rows = (ch - 34) / 10;
+  if (rows > BASIC_ROWS) rows = BASIC_ROWS;
+  if (rows < 1) rows = 1;
+  int start = bas_row > rows ? bas_row - rows : 0;
+  for (int i = 0; i < rows; i++) {
+    int idx = start + i;
+    if (idx >= bas_row) break;
+    draw_text(tx, cy + 10 + i * 10, idx == bas_row - 1 ? C_TEXTBRIGHT : C_SILVER, bas_out[idx % BASIC_ROWS]);
+  }
+
+  /* prompt bar across the bottom */
+  int py = cy + ch - 20;
+  hline(cx + 4, py - 7, cw - 8, C_DGRAY);
+  draw_text(cx + 6, py, C_GREEN, "BASIC>");
+  draw_text(cx + 54, py, C_TEXTBRIGHT, bas_line);
+  if ((ticks / 20) & 1) fill(cx + 54 + slen(bas_line) * 8, py, 6, 9, C_TEXTBRIGHT);
+}
 
 static void app_music(Win *w) {
   int cx = w->x + WIN_PAD, cy = w->y + TITLE_H + WIN_PAD;
@@ -961,6 +1122,11 @@ static void click(void) {
       if (ln >= 0 && ln < ed_lines) ed_cur = ln;
     }
     if (w->app == APP_ABOUT) return;
+    if (w->app == APP_BASIC && !bas_started) {
+      bas_started = 1;
+      bas_print("NovaBASIC 1.0 ready.");
+      bas_print("type: RUN   SAMPLES   HELP");
+    }
     dirty = 1;
     return;
   }
@@ -971,7 +1137,7 @@ static const char *kbd_map_lo = "1234567890-=";
 static const char *kbd_map_lo_s = "!@#$%^&*()_+";
 static const char *kbd_map_mid = "qwertyuiop[]";
 static const char *kbd_map_mid2 = "asdfghjkl;'`";
-static const char *kbd_map_mid3 = "\\zxcvbnm,./";
+static const char *kbd_map_mid3 = "zxcvbnm,./";  /* sc 0x2C..0x35 */
 
 static char scancode_to_ascii(u8 sc, int shift) {
   if (sc >= 0x02 && sc <= 0x0D) { int i = sc - 0x02; return shift ? kbd_map_lo_s[i] : kbd_map_lo[i]; }
@@ -984,16 +1150,33 @@ static char scancode_to_ascii(u8 sc, int shift) {
   if (sc == 0x2B) return '\\';
   if (sc >= 0x2C && sc <= 0x35) { int i = sc - 0x2C; return shift ? kbd_map_mid3[i] - 32 : kbd_map_mid3[i]; }
   if (sc == 0x39) return ' ';
-  if (sc == 0x1A) return 27;
+  if (sc == 0x01) return 27;   /* Esc (set 1) */
   return 0;
 }
 
+/* the window that currently owns the keyboard: the focused window when it is
+   still usable, otherwise the top-most one. Esc clears `focus`, which hands the
+   keyboard back to the desktop so the single-key hotkeys work again. */
+static int kb_app(void) {
+  if (focus < 0) return APP_NONE;
+  if (focus < MAX_WIN && wins[focus].open && !wins[focus].min) return wins[focus].app;
+  for (int i = ztop - 1; i >= 0; i--) {
+    int idx = order[i];
+    if (idx < 0 || idx >= MAX_WIN) continue;
+    if (!wins[idx].open || wins[idx].min) continue;
+    focus = idx;
+    return wins[idx].app;
+  }
+  return APP_NONE;
+}
+
 static void key_input(char ch) {
-  if (ch == 27) return;
+  if (ch == 27) { focus = -1; dirty = 1; return; }
   if (ch == -3) { open_app(APP_ABOUT); return; }
   if (ch == -1) return;
 
-  if (focus >= 0 && wins[focus].open && wins[focus].app == APP_DOS) {
+  int app = kb_app();
+  if (app == APP_DOS) {
     if (ch == 10) { shell_exec(shell_line); shell_line[0] = 0; dirty = 1; return; }
     if (ch == 8) { int n = slen(shell_line); if (n) shell_line[n - 1] = 0; dirty = 1; return; }
     if (ch >= 32 && ch < 127) {
@@ -1003,7 +1186,40 @@ static void key_input(char ch) {
     }
     return;
   }
-  if (focus >= 0 && wins[focus].open && wins[focus].app == APP_EDITOR) {
+  if (app == APP_BASIC) {
+    if (ch == 10) {
+      char cmd[48];
+      scopy(cmd, bas_line, sizeof cmd);
+      bas_line[0] = 0;
+      if (cmd[0]) {
+        if (!strcmp_ci(cmd, "run")) {
+          bas_run(bas_samples[0]);
+        } else if (!strcmp_ci(cmd, "samples")) {
+          bas_sample_idx = (bas_sample_idx + 1) % 3;
+          bas_run(bas_samples[bas_sample_idx]);
+        } else if (!strcmp_ci(cmd, "new") || !strcmp_ci(cmd, "cls")) {
+          bas_cls();
+          bas_print("cleared.");
+        } else if (!strcmp_ci(cmd, "help")) {
+          bas_print("run samples new cls help");
+          bas_print("keywords: print pset line");
+          bas_print("beep launch <app> end");
+        } else {
+          bas_run(cmd);
+        }
+      }
+      dirty = 1;
+      return;
+    }
+    if (ch == 8) { int n = slen(bas_line); if (n) bas_line[n - 1] = 0; dirty = 1; return; }
+    if (ch >= 32 && ch < 127) {
+      int n = slen(bas_line);
+      if (n < 44) { bas_line[n] = ch; bas_line[n + 1] = 0; }
+      dirty = 1;
+    }
+    return;
+  }
+  if (app == APP_EDITOR) {
     char *line = ed_text[ed_cur];
     int n = slen(line);
     if (ch == 10) { if (ed_cur < ed_lines - 1) ed_cur++; }
@@ -1013,6 +1229,8 @@ static void key_input(char ch) {
     dirty = 1;
     return;
   }
+  if (ch == 'b' || ch == 'B') { open_app(APP_BASIC); return; }
+  if (ch == 'd' || ch == 'D') { open_app(APP_DOS); return; }
   if (ch == 'm' || ch == 'M') { open_app(APP_MONITOR); return; }
   if (ch == 'p' || ch == 'P') { open_app(APP_PAINT); return; }
 }
@@ -1098,6 +1316,7 @@ void ui_frame(void) {
       case APP_ABOUT: app_about(w); break;
       case APP_DOS: app_dos(w); break;
       case APP_MUSIC: app_music(w); break;
+      case APP_BASIC: app_basic(w); break;
     }
   }
   draw_taskbar();
@@ -1138,8 +1357,8 @@ void kb_event(u8 sc) {
   if (sc == 0xAA || sc == 0xB6) { shift = 0; return; }
   if (sc & 0x80) return;
   char ch = scancode_to_ascii(sc, shift);
-  if (ch != 0) key_input(ch);
   dirty = 1;
+  if (ch != 0) key_input(ch);
 }
 
 void music_step(void) {
@@ -1184,21 +1403,21 @@ void kmain(void) {
   log("NOVADESK: PS/2 mouse enabled on IRQ12\r\n");
   set_palette();
   log("NOVADESK: palette set\r\n");
-  ui_boot();
+
+  sti();
   log("NOVADESK: desktop ready, entering idle loop\r\n");
   ui_frame();
   verify_frame();
-  log("NOVADESK: desktop ready, entering idle loop\r\n");
-  ui_frame();
-  verify_frame();
-  /* layout probe: one solid line at y=0 (colour 1) and one at y=100 (colour 2) */
-  for (u32 i = 0; i < W * H; i++) SCREEN[i] = 0;
-  for (int i = 0; i < W; i++) SCREEN[i] = 1;
-  for (int i = 0; i < W; i++) SCREEN[100 * W + i] = 2;
-  for (int i = 0; i < W; i++) SCREEN[199 * W + i] = 4;
+
   for (;;) {
     __asm__ volatile("hlt");
+    /* the keyboard cursor blinks at 1.5 Hz, so a focused prompt repaints */
+    int a = kb_app();
+    if (a == APP_BASIC || a == APP_DOS || a == APP_EDITOR) {
+      u32 blink = ticks / 33;
+      if (blink != blink_state) { blink_state = blink; dirty = 1; }
+    }
     music_step();
-    ui_frame();
+    if (dirty) ui_frame();
   }
 }

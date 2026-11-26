@@ -13,7 +13,7 @@ ld -m elf_i386 -T link.ld -nostdlib --oformat binary -o kernel.bin entry.o kerne
 SIZE=$(stat -c%s kernel.bin)
 SEC=$(( (SIZE + 511) / 512 ))
 echo "kernel.bin: $SIZE bytes ($SEC sectors)"
-if [ "$SEC" -gt 56 ]; then echo "kernel too big for 56 sectors"; exit 1; fi
+if [ "$SEC" -gt 92 ]; then echo "kernel too big for 92 sectors"; exit 1; fi
 
 # the boot sector needs the sector count baked in, so assemble it second
 as --32 --defsym KERNEL_SECTORS=$SEC -o boot.o boot.S

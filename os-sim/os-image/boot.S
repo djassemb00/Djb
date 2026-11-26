@@ -7,8 +7,10 @@
  * protected mode and jump to the kernel at 0x10000.
  */
 .ifndef KERNEL_SECTORS
-.set KERNEL_SECTORS, 56
+.set KERNEL_SECTORS, 96
 .endif
+/* most BIOSes read at most 64K per int 13h call: 32 sectors * 512 = 16K */
+.set CHUNK_MAX, 32
 
 .code16
 .section .text
@@ -51,7 +53,10 @@ boot:
     cmp %di, %ax
     jbe 1f
     mov %di, %ax
-1:  mov %al, sec_count
+1:  cmp $CHUNK_MAX, %ax
+    jbe 2f
+    mov $CHUNK_MAX, %ax
+2:  mov %al, sec_count
 
     mov sec_count, %al
     mov boot_drive, %dl
