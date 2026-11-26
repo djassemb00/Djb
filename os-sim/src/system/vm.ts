@@ -58,7 +58,8 @@ export function createVM(opts: VMOptions): VMApi {
     memory_size: memoryMB * 1024 * 1024,
     vga_memory_size: 8 * 1024 * 1024,
     screen_container: opts.container,
-    [slot]: { buffer: new Blob([opts.image as BlobPart]) },
+    // v86 derives a name from the buffer object, so it must be a File, not a Blob
+    [slot]: { buffer: new File([opts.image as BlobPart], `${slot}-image.img`) },
     autostart: true,
   } as never);
 
@@ -97,12 +98,23 @@ export function createVM(opts: VMOptions): VMApi {
   const isAlive = () => {
     const vga = getVGA(raw);
     if (!vga) return false;
-    const memory = vga.svga_enabled ? vga.svga_memory : vga.vga_memory;
+    if (vga.graphical_mode) {
+      // a drawn desktop has hundreds of thousands of non-blank pixels
+      const memory = vga.svga_enabled ? vga.svga_memory : vga.vga_memory;
+      if (!memory) return false;
+      let seen = 0;
+      for (let i = 0; i < memory.length && i < 640 * 400; i += 5) if (memory[i]) seen++;
+      return seen > 700;
+    }
+    // text mode: the 80x25 window is alive once it holds printable glyphs
+    const memory = vga.vga_memory;
     if (!memory) return false;
-    // a drawn desktop has thousands of non-blank bytes; a blank one has none
-    let seen = 0;
-    for (let i = 0; i < memory.length && i < 640 * 480; i += 7) if (memory[i]) seen++;
-    return seen > 500;
+    let glyphs = 0;
+    for (let i = 0; i < 4000; i += 2) {
+      const c = memory[i];
+      if (c > 32 && c < 127) glyphs++;
+    }
+    return glyphs > 60;
   };
 
   return {
@@ -138,6 +150,7 @@ export function createVM(opts: VMOptions): VMApi {
 
 interface VGALike {
   svga_enabled: boolean;
+  graphical_mode: boolean;
   svga_memory: Uint8Array;
   vga_memory: Uint8Array;
 }

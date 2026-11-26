@@ -27,6 +27,8 @@ export function MachineView() {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const vmRef = useRef<VMApi | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const lastBooted = useRef<string | null>(null);
+  const inFlight = useRef<string | null>(null);
 
   const screen = useVM((s) => s.screen);
   const setScreen = useVM((s) => s.setScreen);
@@ -59,7 +61,12 @@ export function MachineView() {
 
   /* ---------------- boot the machine ---------------- */
   const boot = useCallback(async () => {
-    if (!containerRef.current) return;
+    // v86 injects a text-mode <div> and a <canvas> into this element.
+    const host = containerRef.current;
+    if (!host) return;
+    // React StrictMode mounts effects twice in development; one boot per disk.
+    if (inFlight.current === active.path) return;
+    inFlight.current = active.path;
     vmRef.current?.destroy();
     vmRef.current = null;
     setPhase('loading');
@@ -69,10 +76,10 @@ export function MachineView() {
       const image = await loadImage(active.path, setLoadPct);
       setPhase('booting');
       const vm = createVM({
-        container: containerRef.current,
+        container: host,
         image,
-        slot: 'fda',
-        memoryMB: 32,
+        slot: active.slot,
+        memoryMB: active.memoryMB,
         onSerial: pushSerial,
         onState: setVmState,
       });
@@ -83,29 +90,40 @@ export function MachineView() {
       const started = Date.now();
       const poll = window.setInterval(() => {
         const alive = vm.isAlive();
-        if (alive || Date.now() - started > 25000) {
+        if (alive || Date.now() - started > 15000) {
           window.clearInterval(poll);
           setPhase('ready');
           setBooted(true);
         }
       }, 400);
     } catch (e) {
+      inFlight.current = null;
       setError(e instanceof Error ? e.message : String(e));
       setPhase('failed');
     }
   }, [active.path, pushSerial, scale, setBooted]);
 
+  // Boot on entry, and re-boot whenever the selected disk changes.
   useEffect(() => {
-    if (screen !== 'machine' || booted) return;
+    if (screen !== 'machine') return;
+    if (booted && lastBooted.current === active.path) return;
+    lastBooted.current = active.path;
     void boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, booted]);
+  }, [screen, booted, active.path]);
 
+  // Tear the machine down when the view really goes away. The teardown is
+  // deferred so a StrictMode remount can keep the running VM.
   useEffect(() => {
     return () => {
-      vmRef.current?.destroy();
-      vmRef.current = null;
-      setBooted(false);
+      const vm = vmRef.current;
+      window.setTimeout(() => {
+        if (vmRef.current !== vm) return;
+        vmRef.current = null;
+        inFlight.current = null;
+        vm?.destroy();
+        setBooted(false);
+      }, 150);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -167,6 +185,7 @@ export function MachineView() {
   };
 
   const bootImage = (img: MachineImage) => {
+    inFlight.current = null;
     setActiveImage(img.id);
     setBooted(false);
     if (screen !== 'machine') setScreen('machine');
@@ -183,6 +202,16 @@ export function MachineView() {
     const stop = (e: WheelEvent) => e.preventDefault();
     el.addEventListener('wheel', stop, { passive: false });
     return () => el.removeEventListener('wheel', stop);
+  }, [screen]);
+
+  // Focus the frame so keystrokes go to the machine, and put focus back if the
+  // user clicks the screen.
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return;
+    const refocus = () => el.focus({ preventScroll: true });
+    el.addEventListener('pointerdown', refocus);
+    return () => el.removeEventListener('pointerdown', refocus);
   }, [screen]);
 
   return (
@@ -234,9 +263,7 @@ export function MachineView() {
             onClick={() => frameRef.current?.focus()}
             aria-label="شاشة الجهاز المحاكى"
           >
-            <div className="crt-screen" ref={containerRef}>
-              {/* v86 injects a text <div> and a <canvas> here */}
-            </div>
+            <div className="crt-screen" ref={containerRef} />
             <div className="crt-glass" />
             {busy && (
               <div className="crt-overlay">

@@ -1833,6 +1833,10 @@ textarea.input {
   background: #05060a;
   box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9);
   line-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
 }
 /* v86 injects: a text-mode <div> + a graphical <canvas> */
 .crt-screen > div {
@@ -1847,6 +1851,10 @@ textarea.input {
   image-rendering: pixelated;
   max-width: 100%;
   height: auto !important;
+}
+/* the text-mode layer stays in flow but hidden while the GPU canvas is up */
+.crt-screen > div:not(.cursor) {
+  display: none;
 }
 .crt-glass {
   position: absolute;

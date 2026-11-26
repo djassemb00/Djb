@@ -79,6 +79,10 @@ export const useVM = create<VMStore>()(
       addUserImage: (img) => set((s) => ({ userImages: [...s.userImages.filter((i) => i.id !== img.id), img] })),
       removeUserImage: (id) => set((s) => ({ userImages: s.userImages.filter((i) => i.id !== id) })),
     }),
-    { name: 'novaos-vm-v1' },
+    {
+      name: 'novaos-vm-v1',
+      // never persist the screen/runtime flags: a reload must start on the desk
+      partialize: (s) => ({ scale: s.scale, activeImageId: s.activeImageId, userImages: s.userImages }),
+    },
   ),
 );

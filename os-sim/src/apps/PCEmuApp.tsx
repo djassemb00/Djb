@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { Cpu, HardDrive, MonitorPlay, MousePointerClick, Power, ShieldCheck, Upload, Zap } from 'lucide-react';
 import { useVM } from '../store/useVM';
+import { useOS } from '../store/useOS';
 import { sfx } from '../system/sound';
 
 /**
@@ -11,11 +13,25 @@ export function PCEmuApp() {
   const setScreen = useVM((s) => s.setScreen);
   const booted = useVM((s) => s.booted);
   const activeImageId = useVM((s) => s.activeImageId);
+  const closeWin = useOS((s) => s.close);
+  const wins = useOS((s) => s.windows);
 
   const enter = () => {
     sfx.open();
     setScreen('machine');
   };
+
+  // Opening the app means "start the computer": no extra click, and the
+  // launcher window closes itself once the machine owns the screen.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setScreen('machine');
+      // the machine takes over the whole screen; drop the launcher window
+      for (const w of wins) if (w.appId === 'pcemu') closeWin(w.id);
+    }, 420);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="emu-launcher">
