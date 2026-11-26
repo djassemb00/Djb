@@ -58,6 +58,8 @@ NovaOS لم يعد محاكاة شكلية: نافذة **«محاكي الحاس
 ## التحقق (كيف نتأكد أنه حقيقي)
 
 - `os-image/screenshot.png` — لقطة من ذاكرة VBE الخاصة بالجهاز بعد إقلاع NovaDesk.
+- `os-image/nova-basic-typed.png` و `nova-basic-run.png` — إدخال `run` من لوحة مفاتيح PS/2 حقيقية
+  داخل VM، ثم تنفيذها: النص يظهر في السطر و الرسم يظهر في لوحة 16×16.
 - `os-image/canvas-check.png` — لقطة من **canvas الخاص بـ v86** (نفس المسار الذي يرسم في المتصفح)،
   أُخذت من تشغيل headless: 343 إطارًا، بلا ارتفاع في الذاكرة (≈17MB).
 - FreeDOS: تم التحقق فعليًا بتنفيذ `VOL` وإظهار `Volume in Drive A is FREEDOS`.
