@@ -16,7 +16,7 @@ import { buildProgramDisk } from '../system/guest';
 import { useVM } from '../store/useVM';
 import { sfx } from '../system/sound';
 import { ProgramIcon } from '../components/ProgramIcon';
-import { usePrograms } from '../store/usePrograms';
+import { programId, usePrograms } from '../store/usePrograms';
 import { useLaunchProgram } from '../components/Desktop';
 
 type Row = {
@@ -179,7 +179,7 @@ export function AppsApp() {
       </div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         {CATALOG.map((c) => {
-          const has = programs.some((p) => p.id === c.id);
+          const has = programs.some((p) => p.id === programId(c.file));
           return (
             <button
               key={c.id}

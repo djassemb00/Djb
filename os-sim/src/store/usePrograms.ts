@@ -48,10 +48,23 @@ interface ProgramsStore {
   setBusy: (id: string | null) => void;
 }
 
-/** 8.3 base name, same rule the floppy writer uses */
+/**
+ * Stable id for a file: the 8.3 base name plus a short hash of the full name.
+ *
+ * The hash matters. Without it `a.b.c.exe` and `abc.exe` both become `ABC`, and a
+ * second install would silently replace the first app on the home screen. With it,
+ * distinct files always get distinct icons, while reinstalling the same file still
+ * updates in place.
+ */
 export function programId(fileName: string): string {
   const stem = fileName.replace(/\.[^.]*$/, '');
-  return (stem.toUpperCase().replace(/[^A-Z0-9]/g, '') || 'PROGRAM').slice(0, 8);
+  const base = (stem.toUpperCase().replace(/[^A-Z0-9]/g, '') || 'PROGRAM').slice(0, 8);
+  let h = 0x811c9dc5;
+  for (const c of fileName.toUpperCase()) {
+    h ^= c.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${base}-${h.toString(36).slice(0, 4)}`;
 }
 
 /** disk key per install; one disk can back several launchers from a menu */
