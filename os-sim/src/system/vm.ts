@@ -176,7 +176,8 @@ export function createVM(opts: VMOptions): VMApi {
     },
     sendScancodes: (codes) => emulator.keyboard_send_scancodes(codes),
     setThrottle: (factor) => {
-      const f = Math.min(1, Math.max(0.1, factor));
+      // 0 is meaningful: it parks the CPU entirely (app went to the background)
+      const f = Math.min(1, Math.max(0, factor));
       if (f === throttleFactor) return;
       throttleFactor = f;
       if (throttleTimer !== null) {
@@ -185,6 +186,14 @@ export function createVM(opts: VMOptions): VMApi {
       }
       if (f >= 1) {
         void emulator.run();
+        return;
+      }
+      if (f === 0) {
+        try {
+          void emulator.stop();
+        } catch {
+          /* nothing to stop */
+        }
         return;
       }
       const period = 200;

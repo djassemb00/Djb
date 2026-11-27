@@ -113,9 +113,21 @@ export function MachineView() {
     };
     void tick();
     const id = window.setInterval(() => void tick(), 10000);
+
+    // Android kills what burns CPU in the background (the "phantom process" rule).
+    // Pausing the guest when we lose focus keeps the session alive AND cool; the
+    // emulator's state lives in RAM, so unpausing is instantaneous.
+    const onVis = () => {
+      const vm = vmRef.current;
+      if (!vm) return;
+      if (document.visibilityState === 'hidden') vm.setThrottle(0);
+      else void readGovernor().then((r) => vm.setThrottle(r.throttle));
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       alive = false;
       window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [screen]);
 
@@ -614,6 +626,7 @@ export function MachineView() {
               <div className="side-title" style={{ marginTop: 14 }}>
                 <Shield size={14} /> إعدادات HONOR المطلوبة
               </div>
+              <p className="tiny muted">{device.verdict}</p>
               <ol className="keep-alive">
                 {device.keepAlive.map((line) => (
                   <li key={line}>{line}</li>

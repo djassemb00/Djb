@@ -17,6 +17,8 @@ export interface DeviceProfile {
   keepAlive: string[];
   /** hardware facts that decide which emulation paths are even possible */
   limits: string[];
+  /** one-line verdict: what this phone should actually run */
+  verdict: string;
 }
 
 const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
@@ -37,7 +39,11 @@ export function detectDevice(): DeviceProfile {
         'لا يوجد AVF/pKVM على أجهزة HONOR ← مسار «آلة افتراضية أصلية» غير متاح',
         'MagicOS مبني على أندرويد ١٣/١٤ ← وضع سطح مكتب أندرويد ١٦/١٧ غير متاح',
         'Snapdragon 8 Gen 1 يسخن سريعاً ← حاكم الحرارة ضرورة لا رفاهية',
+        'أندرويد ١٢+ يقتل «العمليات الشبحية» عند ٣٢ عملية لكل النظام، ويقتل ما يستهلك CPU في الخلفية',
       ],
+      verdict:
+        'جهازك ممتاز لهذا المحرك: Adreno 730 مدعوم رسمياً في Turnip، و٨ غيغا تكفي أكثر من اللازم. ' +
+        'القيد الحقيقي هو الحرارة وMagicOS، لا العتاد.',
     };
   }
   if (ua.includes('huawei')) {
@@ -50,6 +56,7 @@ export function detectDevice(): DeviceProfile {
         'الإعدادات ← التطبيقات ← التطبيق ← استهلاك الطاقة ← إدارة يدوية',
       ],
       limits: ['لا يوجد AVF/pKVM على أجهزة Huawei'],
+      verdict: 'Kirin يحتاج Box64 لا FEX: أداء أقل في مسار .exe الأصلي. محركانا المتصفحي لا يتأثر.',
     };
   }
   if (ua.includes('samsung')) {
@@ -61,6 +68,7 @@ export function detectDevice(): DeviceProfile {
         'الإعدادات ← التطبيقات ← التطبيق ← البطارية ← «غير مقيد»',
       ],
       limits: ['AVF متاح على أجهزة Exynos الحديثة فقط، وليس على كل طرازات سامسونج'],
+      verdict: 'مسار .exe الأصلي أضعف على Mali/Xclipse؛ الأفضل هنا مسار المتصفح وBoxedwine.',
     };
   }
   if (ua.includes('miui') || ua.includes('redmi') || ua.includes('xiaomi')) {
@@ -73,7 +81,14 @@ export function detectDevice(): DeviceProfile {
         'اقفل التطبيق في قائمة التطبيقات الأخيرة',
       ],
       limits: [],
+      verdict: 'HyperOS يقتل الخلفية بشراسة مشابهة؛ طبّق خطوات التثبيت الثلاث.',
     };
   }
-  return { vendor: 'generic', label: 'Android', keepAlive: [], limits: [] };
+  return {
+    vendor: 'generic',
+    label: 'Android',
+    keepAlive: ['الإعدادات ← التطبيقات ← التطبيق ← البطارية ← «بلا قيود»'],
+    limits: [],
+    verdict: 'جهاز عام: كل مسارات المتصفح تعمل، والمسار الأصلي يعتمد على نوع المعالج.',
+  };
 }
