@@ -12,6 +12,7 @@ export type AppId =
   | 'settings'
   | 'pcemu'
   | 'apps'
+  | 'setup'
   | 'about';
 
 export type FSNode =
