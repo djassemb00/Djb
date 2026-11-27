@@ -1,0 +1,32 @@
+name: ci
+
+# Why this file is at the repository root: GitHub Actions only discovers workflows in
+# .github/workflows at the root (docs.github.com/en/actions/using-workflows). The old
+# os-sim/.github/workflows/ci.yml was never read -- it had been "added" for several
+# rounds without ever running once, and the only live workflow was webpack.yml, which
+# ran `npx webpack` against a Vite project (no webpack config exists) on one branch.
+#
+# The single authority is now `npm run gate`, which runs the enforced loop from
+# os-sim/AUDIT.md: audit -> citations -> prove (type-check, tests that boot a real
+# emulated PC, build, size budget, bridge smoke) -> re-audit. Red means a cycle is
+# still open.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: os-sim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: os-sim/package-lock.json
+      - run: npm ci
+      - run: npm run gate

@@ -103,9 +103,16 @@ describe('android stage 1', () => {
   it('lets the native shell own the insets instead of trusting WebView env()', () => {
     // SafeAreaInsets.isSupported() is false for Theme.AppCompat, so env(safe-area-*)
     // is 0 in an AppCompat WebView. Capacitor's own edgeToEdgeHandler is the fix.
-    expect(read('capacitor.config.ts')).toContain("adjustMarginsForEdgeToEdge: 'force'");
-    const json = JSON.parse(read('android/app/src/main/assets/capacitor.config.json'));
-    expect(json.android.adjustMarginsForEdgeToEdge).toBe('force');
+    //
+    // NOTE: we assert on capacitor.config.ts, not on the generated
+    // assets/capacitor.config.json -- that file is in android/.gitignore, so a CI
+    // checkout does not have it and the test would fail for the wrong reason.
+    const cfg = read('capacitor.config.ts');
+    expect(cfg).toContain("adjustMarginsForEdgeToEdge: 'force'");
+    const generated = 'android/app/src/main/assets/capacitor.config.json';
+    if (existsSync(generated)) {
+      expect(JSON.parse(read(generated)).android.adjustMarginsForEdgeToEdge).toBe('force');
+    }
   });
 
   it('keeps the Kotlin plugin inside the SDK levels the manifest allows', () => {
