@@ -14,6 +14,7 @@ import { AlertTriangle, AppWindow, CheckCircle2, Download, FileWarning, Loader2,
 import { describePE, inspectPE, type PEInfo } from '../system/pe';
 import { buildProgramDisk } from '../system/guest';
 import { adviseRoute } from '../system/routes';
+import { CATALOG, LANE_LABEL, needsExternalInstall } from '../system/catalog';
 import { useVM } from '../store/useVM';
 import { sfx } from '../system/sound';
 import { ProgramIcon } from '../components/ProgramIcon';
@@ -41,7 +42,7 @@ const VERDICT_STYLE: Record<PEInfo['verdict'], { cls: string; icon: typeof Check
 const DOS_EXT = /\.(com|exe|bat)$/i;
 
 /** programs that ship inside the app (public/programs, built from os-dos/) */
-const CATALOG = [
+const BUNDLED = [
   { id: 'SNAKE', name: 'SNAKE', file: 'SNAKE.COM', desc: 'لعبة الثعبان — أسهم، Q للخروج' },
   { id: 'PONG', name: 'PONG', file: 'PONG.COM', desc: 'بونغ ضد الحاسوب — W/S' },
 ];
@@ -119,7 +120,7 @@ export function AppsApp() {
   };
 
   /** install one of the programs we ship, straight from the app */
-  const installFromCatalog = async (c: (typeof CATALOG)[number]) => {
+  const installFromCatalog = async (c: (typeof BUNDLED)[number]) => {
     try {
       setInstalling(c.file);
       setError(null);
@@ -176,10 +177,58 @@ export function AppsApp() {
       )}
 
       <div className="launcher-section" style={{ marginTop: 4 }}>
+        مكتبة الألعاب — لكل لعبة أسرع طريق، لا طريق واحد للجميع
+      </div>
+      <div className="game-grid">
+        {CATALOG.map((g) => {
+          const lane = LANE_LABEL[g.lane];
+          // only offer a button when pressing it really installs something
+          const file = `${g.id.toUpperCase()}.COM`;
+          const bundled = BUNDLED.find((b) => b.file === file);
+          const installable = g.lane === 'dos' && !!bundled;
+          return (
+            <div key={g.id} className={`game-card ${lane.cls}`}>
+              <div className="row between" style={{ alignItems: 'flex-start', gap: 6 }}>
+                <b className="tiny">{g.title}</b>
+                <span className={`lane-chip ${lane.cls}`}>{lane.label}</span>
+              </div>
+              <p className="tiny muted" style={{ margin: '4px 0 2px' }}>
+                {g.year} · {g.fps} إطاراً/ثانية على جهازك
+              </p>
+              <p className="tiny" style={{ margin: '0 0 4px' }}>
+                {g.note}
+              </p>
+              <p className="tiny" style={{ margin: 0, opacity: 0.8 }}>
+                التثبيت: {g.install}
+              </p>
+              {installable && bundled ? (
+                <button
+                  className="btn primary"
+                  style={{ marginTop: 6 }}
+                  disabled={installing === bundled.file || programs.some((p) => p.fileName === bundled.file)}
+                  onClick={() => void installFromCatalog(bundled)}
+                >
+                  {programs.some((p) => p.fileName === bundled.file) ? 'مثبّتة' : 'ثبّت'}
+                </button>
+              ) : needsExternalInstall(g) ? (
+                <button className="btn" style={{ marginTop: 6 }} onClick={() => window.open(g.link!, '_blank', 'noopener')}>
+                  افتح صفحة التثبيت
+                </button>
+              ) : (
+                <p className="tiny" style={{ margin: '6px 0 0', color: '#fbbf24' }}>
+                  مسار Winlator — يُجهَّز خارجياً
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="launcher-section" style={{ marginTop: 4 }}>
         جاهزة للتثبيت فوراً — كتبناها لهذا التطبيق
       </div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        {CATALOG.map((c) => {
+        {BUNDLED.map((c) => {
           const has = programs.some((p) => p.id === programId(c.file));
           return (
             <button
