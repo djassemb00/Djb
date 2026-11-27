@@ -12,6 +12,8 @@
  * resulting framebuffer.
  */
 #include "font8x8.h"
+#include "arabic.h"
+#include "arabic_strings.h"
 
 /* machine entry, provided by entry.S wiring */
 void kmain(void);
@@ -383,8 +385,62 @@ int text_w(const char *s, int scale) {
   return n * 8 * scale;
 }
 
+/* Draw an Arabic run of `n` glyph indices starting at x, right to left:
+   the first letter of the word sits right-most, which is how Arabic reads. */
+static void draw_arabic_run(int x, int y, u8 c, const unsigned char *g, int n) {
+  for (int k = 0; k < n; k++) {
+    const unsigned char *bits = arabic_font[g[k]];
+    int px0 = x + (n - 1 - k) * 8;
+    for (int r = 0; r < 8; r++) {
+      u8 row = bits[r];
+      if (!row) continue;
+      int py = y + r;
+      if (py < 0 || py >= H) continue;
+      u8 *dst = SCREEN + (u32)py * W;
+      for (int b = 0; b < 8; b++)
+        if (row & (1 << b)) {
+          int px = px0 + b;
+          if (px >= 0 && px < W) dst[px] = c;
+        }
+    }
+  }
+}
+
+/* Arabic-aware text. Latin runs draw left to right as before; an Arabic run is
+   shaped (isolated/initial/medial/final) then drawn right to left. Mixed lines
+   therefore keep each script in its own direction, which is the minimum a
+   bilingual desktop needs. */
 void draw_text(int x, int y, u8 c, const char *s) {
-  for (; *s; s++, x += 8) draw_char(x, y, c, *s);
+  int i = 0;
+  unsigned char shaped[64];
+  while (s[i]) {
+    unsigned int cp = utf8_next(s, &i);
+    if (cp < 128) { draw_char(x, y, c, (char)cp); x += 8; continue; }
+    /* collect the longest Arabic run we can shape in one pass */
+    int n = 0;
+    unsigned int run[64];
+    if (arabic_is_letter(cp)) run[n++] = cp;
+    while (s[i] && n < 64) {
+      int j = i;
+      unsigned int next = utf8_next(s, &j);
+      if (!arabic_is_letter(next)) break;
+      run[n++] = next;
+      i = j;
+    }
+    for (int k = 0; k < n; k++) {
+      int prev_joins = k > 0 && arabic_joins_forward(run[k - 1]);
+      int next_joins = k + 1 < n && arabic_joins_forward(run[k]);
+      int form = 0;
+      if (prev_joins && next_joins) form = 3;      /* medial */
+      else if (prev_joins) form = 1;               /* final  */
+      else if (next_joins) form = 2;               /* initial */
+      int g = arabic_glyph(run[k], form);
+      if (g < 0) { shaped[k] = 0; continue; }
+      shaped[k] = (unsigned char)g;
+    }
+    draw_arabic_run(x, y, c, shaped, n);
+    x += n * 8;
+  }
 }
 
 /* small 2x text used for titles */
@@ -759,7 +815,7 @@ static void open_app(int app) {
       case APP_PAINT: wins[idx].title = "Paint"; wins[idx].x = 152; wins[idx].y = 80; wins[idx].w = 344; wins[idx].h = 232; break;
       case APP_FILES: wins[idx].title = "My Computer"; wins[idx].x = 68; wins[idx].y = 56; wins[idx].w = 324; wins[idx].h = 236; break;
       case APP_MONITOR: wins[idx].title = "System Monitor"; wins[idx].x = 236; wins[idx].y = 92; wins[idx].w = 336; wins[idx].h = 208; break;
-      case APP_ABOUT: wins[idx].title = "About NovaDesk"; wins[idx].x = 176; wins[idx].y = 112; wins[idx].w = 312; wins[idx].h = 176; break;
+      case APP_ABOUT: wins[idx].title = "About / \xD8\xAD\xD9\x88\xD9\x84"; wins[idx].x = 176; wins[idx].y = 112; wins[idx].w = 312; wins[idx].h = 176; break;
       case APP_DOS: wins[idx].title = "Command Prompt"; wins[idx].x = 120; wins[idx].y = 120; wins[idx].w = 360; wins[idx].h = 188; break;
       case APP_MUSIC: wins[idx].title = "Speaker"; wins[idx].x = 192; wins[idx].y = 100; wins[idx].w = 280; wins[idx].h = 176; break;
       case APP_BASIC: wins[idx].title = "NovaBASIC"; wins[idx].x = 104; wins[idx].y = 56; wins[idx].w = 380; wins[idx].h = 248; break;
@@ -1097,7 +1153,9 @@ static void app_about(Win *w) {
   draw_text(cx + 20, cy + 80, C_TEXT_DIM, "32-bit protected-mode OS for NovaOS.");
   draw_text(cx + 20, cy + 94, C_TEXT_DIM, "BIOS booted, runs on emulated x86.");
   draw_text(cx + 20, cy + 108, C_TEXT_DIM, "VBE 8-bit - PS/2 mouse - 100Hz PIT");
-  draw_text(cx + 20, cy + 128, C_ACCENT, "Click an icon to launch a program.");
+  draw_text(cx + 20, cy + 122, C_ACCENT, ar_sample_1);   /* Arabic: RTL + joined */
+  draw_text(cx + 20, cy + 136, C_TEXT_DIM, "Arabic: RTL shaping, no codepage needed");
+  draw_text(cx + 20, cy + 150, C_ACCENT, "Click an icon to launch a program.");
 }
 
 static void sh_line(const char *t) {
@@ -1840,6 +1898,37 @@ void ui_frame(void) {
   draw_cursor();
 }
 
+/* Boot-time proof that the shaper works, printed to COM1 so it can be checked
+   from outside the emulator: the four forms of a letter sequence are decided by
+   its neighbours, which is the whole point of shaping. */
+void arabic_selfcheck(void) {
+  log("ARABIC-SELFCHECK\r\n");
+  const char *w = ar_sample_1;   /* 7 letters */
+  unsigned int run[16]; int n = 0, i = 0;
+  while (w[i] && n < 16) {
+    unsigned int cp = utf8_next(w, &i);
+    if (arabic_is_letter(cp)) run[n++] = cp;
+  }
+  log("letters=");
+  log_hex(n);
+  log("\r\n");
+  for (int k = 0; k < n; k++) {
+    int pj = k > 0 && arabic_joins_forward(run[k - 1]);
+    int nj = k + 1 < n && arabic_joins_forward(run[k]);
+    int form = pj && nj ? 3 : (pj ? 1 : (nj ? 2 : 0));
+    int g = arabic_glyph(run[k], form);
+    unsigned char b = cp720_byte(run[k]);
+    log("glyph=");
+    log_hex((u32)g);
+    log(" form=");
+    log_hex((u32)form);
+    log(" cp720=");
+    log_hex(b);
+    log("\r\n");
+  }
+  log("ARABIC-END\r\n");
+}
+
 /* called from the timer ISR at 100 Hz */
 void sys_tick(void) {
   static int sub = 0;
@@ -1925,6 +2014,7 @@ void kmain(void) {
   log("NOVADESK: desktop ready, entering idle loop\r\n");
   ui_frame();
   verify_frame();
+  arabic_selfcheck();
 
   for (;;) {
     __asm__ volatile("hlt");

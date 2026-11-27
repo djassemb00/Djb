@@ -5,10 +5,12 @@ cd "$(dirname "$0")"
 
 as --32 -o entry.o entry.S
 
-gcc -m32 -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
-    -fno-builtin -O2 -Wall -Wextra -Wno-unused-parameter -c kernel.c -o kernel.o
+CFLAGS="-m32 -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -O2 -Wall -Wextra -Wno-unused-parameter"
+gcc $CFLAGS -c kernel.c -o kernel.o
+# Arabic shaping lives in its own translation unit so the kernel stays readable
+gcc $CFLAGS -c arabic.c -o arabic.o
 
-ld -m elf_i386 -T link.ld -nostdlib --oformat binary -o kernel.bin entry.o kernel.o
+ld -m elf_i386 -T link.ld -nostdlib --oformat binary -o kernel.bin entry.o kernel.o arabic.o
 
 SIZE=$(stat -c%s kernel.bin)
 SEC=$(( (SIZE + 511) / 512 ))
