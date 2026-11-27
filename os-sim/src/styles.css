@@ -38,6 +38,14 @@ body {
 
 /* ============ theme tokens ============ */
 .os {
+  /* Android 15+ draws edge-to-edge for targetSdk 35+ and ignores window light/dark
+     status bar colours: WebView content now runs under the status bar and the nav
+     bar. These four values come from the browser's safe-area support (the viewport
+     already says viewport-fit=cover) and are 0 in a desktop browser. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   --text: #e8ecf7;
   --text-dim: #97a3bd;
   --panel: rgba(14, 19, 32, 0.78);
@@ -99,9 +107,9 @@ body {
 /* ============ status bar ============ */
 .statusbar {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: var(--safe-top);
+  left: var(--safe-left);
+  right: var(--safe-right);
   height: 34px;
   display: flex;
   align-items: center;
@@ -519,9 +527,9 @@ body {
 /* ============ dock ============ */
 .dock-wrap {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: var(--safe-left);
+  right: var(--safe-right);
+  bottom: var(--safe-bottom);
   z-index: 800;
   display: flex;
   flex-direction: column;
@@ -2358,9 +2366,9 @@ textarea.input {
 /* ============ on-screen game pad ============ */
 .gamepad {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 78px;
+  left: var(--safe-left);
+  right: var(--safe-right);
+  bottom: calc(78px + var(--safe-bottom));
   z-index: 850;
   display: flex;
   justify-content: space-between;

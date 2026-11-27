@@ -10,6 +10,11 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
+        <!-- targetSdk 35+ forces edge-to-edge and ignores statusBarColor; we opt in
+             explicitly so the layout is the same on Android 13 through 16. The web
+             layer compensates with env(safe-area-inset-*) (see src/styles.css). -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
