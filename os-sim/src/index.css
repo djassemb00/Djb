@@ -13,3 +13,16 @@
   line-height: 1.75;
   color: var(--muted, #9aa0a6);
 }
+
+/* PC applications inspector */
+.apps-inspector { display: flex; flex-direction: column; gap: 10px; padding: 4px; height: 100%; overflow: auto; }
+.apps-empty { border: 1px dashed rgba(255,255,255,.14); border-radius: 10px; padding: 14px; }
+.pe-card { border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,.03); }
+.pe-card.ok { border-color: rgba(52,211,153,.35); }
+.pe-card.warn { border-color: rgba(251,191,36,.35); }
+.pe-card.bad { border-color: rgba(248,113,113,.35); }
+.chip.ok { color: #34d399; border-color: rgba(52,211,153,.4); display: inline-flex; align-items: center; gap: 4px; }
+.chip.warn { color: #fbbf24; border-color: rgba(251,191,36,.4); display: inline-flex; align-items: center; gap: 4px; }
+.chip.bad { color: #f87171; border-color: rgba(248,113,113,.4); display: inline-flex; align-items: center; gap: 4px; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

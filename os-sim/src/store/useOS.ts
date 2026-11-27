@@ -11,6 +11,7 @@ export type AppId =
   | 'monitor'
   | 'settings'
   | 'pcemu'
+  | 'apps'
   | 'about';
 
 export type FSNode =

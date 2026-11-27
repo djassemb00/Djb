@@ -8,6 +8,7 @@ import { MonitorApp } from './MonitorApp';
 import { SettingsApp } from './SettingsApp';
 import { AboutApp } from './AboutApp';
 import { PCEmuApp } from './PCEmuApp';
+import { AppsApp } from './AppsApp';
 
 export function AppRenderer({ appId }: { appId: AppId; winId: string }) {
   switch (appId) {
@@ -27,6 +28,8 @@ export function AppRenderer({ appId }: { appId: AppId; winId: string }) {
       return <SettingsApp />;
     case 'pcemu':
       return <PCEmuApp />;
+    case 'apps':
+      return <AppsApp />;
     case 'about':
       return <AboutApp />;
     default:

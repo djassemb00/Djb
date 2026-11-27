@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import {
+import { AppWindow,
   Calculator,
   Files,
   Film,
@@ -27,6 +27,18 @@ export interface AppMeta {
 }
 
 export const APPS: AppMeta[] = [
+  {
+    id: 'apps',
+    name: 'تطبيقات الحاسوب',
+    desc: 'حلّل ملف .exe واعرف إن كان يعمل، وبأي مسار',
+    icon: AppWindow,
+    from: '#f0a24b',
+    to: '#b45309',
+    width: 720,
+    height: 540,
+    dock: true,
+    desktop: true,
+  },
   {
     id: 'pcemu',
     name: 'محاكي الحاسوب',
