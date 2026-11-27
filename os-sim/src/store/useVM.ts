@@ -12,6 +12,8 @@ export interface MachineImage {
   note: string;
   builtin: boolean;
   size?: number;
+  /** in-memory disk (a program the user dropped in this session) */
+  bytes?: Uint8Array;
 }
 
 /** Third-party guests are real OSes written by others: name the licence so the
@@ -41,12 +43,14 @@ export const BUILTIN_IMAGES: MachineImage[] = [
     size: 1474560,
   },
   {
-    id: 'win101',
-    name: 'Windows 1.01',
-    path: './images/windows101.img',
+    id: 'dos-games',
+    name: 'ألعاب DOS',
+    path: './images/dos-games.img',
     slot: 'fda',
-    memoryMB: 32,
-    note: 'أول إصدار من ويندوز (1985) — بعد أول إقلاع يُحفظ كصورة حالة ويُستأنف فورًا',
+    memoryMB: 64,
+    note:
+      'ألعاب فعلية تعمل في ٦٤٠ كيلو من الذاكرة: Prince of Persia، Wolfenstein 3D، ' +
+      'Doom، Duke Nukem 3D — كلعبة جاهزة بلا ويندوز ولا تثبيت',
     builtin: true,
     size: 1474560,
   },
@@ -78,6 +82,8 @@ interface VMStore {
   setShowSerial: (v: boolean) => void;
   pushSerial: (s: string) => void;
   setActiveImage: (id: string) => void;
+  /** load a dropped program as the boot disk and switch to the machine */
+  launchProgram: (p: { name: string; disk: Uint8Array }) => void;
   addUserImage: (img: MachineImage) => void;
   removeUserImage: (id: string) => void;
 }
@@ -100,6 +106,18 @@ export const useVM = create<VMStore>()(
       setShowSerial: (showSerial) => set({ showSerial }),
       pushSerial: (serial) => set({ serial }),
       setActiveImage: (activeImageId) => set({ activeImageId }),
+      launchProgram: ({ name, disk }) => {
+        const id = `prog-${Date.now().toString(36)}`;
+        set((s) => ({
+          userImages: [
+            ...s.userImages.filter((i) => i.id !== id),
+            { id, name, path: `mem:${id}`, slot: 'fda', memoryMB: 64, note: 'برنامجك أنت', builtin: false, bytes: disk },
+          ],
+          activeImageId: id,
+          booted: false,
+          screen: 'machine',
+        }));
+      },
       addUserImage: (img) => set((s) => ({ userImages: [...s.userImages.filter((i) => i.id !== img.id), img] })),
       removeUserImage: (id) => set((s) => ({ userImages: s.userImages.filter((i) => i.id !== id) })),
     }),

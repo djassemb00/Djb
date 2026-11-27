@@ -36,11 +36,11 @@ const DATA_DISK_KEY = 'novadesk-novafs';
  * Guests that can be resumed straight to their desktop.
  *
  * A v86 state snapshot is self-contained: it restores into a machine with no
- * disks attached at all (measured: KolibriOS 56 ms, Windows 1.01 63 ms). So the
+ * disks attached at all (measured: 56 ms for KolibriOS). So the
  * first launch of these guests boots and snapshots; every later launch restores,
  * which is what keeps them inside Android 17's per-app memory budget.
  */
-const RESUMABLE = new Set(['kolibri', 'win101']);
+const RESUMABLE = new Set(['novadesk']);
 const SNAPSHOT_DB_KEY = (id: string) => `snapshot:${id}`;
 
 export function MachineView() {
@@ -77,6 +77,8 @@ export function MachineView() {
 
   const images = [...BUILTIN_IMAGES, ...userImages];
   const active = images.find((i) => i.id === activeImageId) ?? BUILTIN_IMAGES[0];
+  /** a dropped file runs as its own session: no desktop, the program *is* the screen */
+  const isProgram = !active.builtin && !!active.bytes;
 
   const toast = (msg: string) => {
     setShowToast(msg);
@@ -144,7 +146,8 @@ export function MachineView() {
     setLoadPct(0);
     setError(null);
     try {
-      const image = await loadImage(active.path, setLoadPct);
+      // a dropped program carries its disk in memory: nothing to fetch
+      const image = active.bytes ?? (await loadImage(active.path, setLoadPct));
       const isNovaDesk = active.id === 'novadesk';
 
       // Fast path: resume a guest from its snapshot instead of cold-booting it.
@@ -493,12 +496,16 @@ export function MachineView() {
                 <div className="boot-logo sm">
                   <Usb />
                 </div>
-                <b>{phase === 'loading' ? 'تحميل صورة القرص' : 'إقلاع العتاد'}</b>
+                <b>{phase === 'loading' ? 'تحميل صورة القرص' : isProgram ? 'تجهيز برنامجك' : 'إقلاع العتاد'}</b>
                 <div className="boot-bar">
                   <i style={{ width: `${Math.round((phase === 'loading' ? loadPct : 0.35) * 100)}%` }} />
                 </div>
                 <span className="tiny muted">
-                  {phase === 'loading' ? `${Math.round(loadPct * 100)}% · ${active.name}` : 'SeaBIOS → NovaDesk kernel'}
+                  {phase === 'loading'
+                    ? `${Math.round(loadPct * 100)}% · ${active.name}`
+                    : isProgram
+                      ? `${active.name} · برنامجك يعمل الآن بلا نظام`
+                      : 'SeaBIOS → NovaDesk kernel'}
                 </span>
               </div>
             )}
