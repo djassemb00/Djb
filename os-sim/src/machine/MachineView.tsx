@@ -44,6 +44,18 @@ const DATA_DISK_KEY = 'novadesk-novafs';
  * which is what keeps them inside Android 17's per-app memory budget.
  */
 const RESUMABLE = new Set(['novadesk']);
+
+/**
+ * ٥-٣: a launched program can be resumed too -- its disk lives in memory and its id is
+ * `prog-…`, so membership is a rule, not a list. The list above stays for built-in guests
+ * whose ids are fixed strings; this covers every program the user drops in.
+ *
+ * Why it is worth a snapshot per program: measured on the emulator the app ships, a cold
+ * boot of SNAKE to its own screen takes 525-774 ms, and restoring the snapshot takes 98-105
+ * ms with the identical page painted. The snapshot is 10.8 MB for a 32 MB machine, which is
+ * the whole reason PLAN ٦-٣ exists as a budget question rather than a free feature.
+ */
+const isResumable = (id: string) => RESUMABLE.has(id) || id.startsWith('prog-');
 const SNAPSHOT_DB_KEY = (id: string) => `snapshot:${id}`;
 
 export function MachineView() {
@@ -191,7 +203,7 @@ export function MachineView() {
       // Fast path: resume a guest from its snapshot instead of cold-booting it.
       // The snapshot carries the whole machine (RAM, devices, disk contents), so
       // no image is needed and no boot time is spent.
-      if (RESUMABLE.has(active.id)) {
+      if (isResumable(active.id)) {
         const saved = await loadDisk(SNAPSHOT_DB_KEY(active.id));
         if (saved && saved.byteLength > 0) {
           setPhase('booting');
@@ -240,7 +252,7 @@ export function MachineView() {
       const poll = window.setInterval(() => {
         const alive = vm.isAlive();
         // cold boots worth resuming: snapshot once the desktop is really on screen
-        if (alive && RESUMABLE.has(active.id) && !snapshotSaved.current.has(active.id)) {
+        if (alive && isResumable(active.id) && !snapshotSaved.current.has(active.id)) {
           snapshotSaved.current.add(active.id);
           window.setTimeout(() => {
             const state = vmRef.current === vm ? vm.saveState() : null;
@@ -320,6 +332,28 @@ export function MachineView() {
   const restart = () => {
     sfx.open();
     const vm = vmRef.current;
+    /*
+     * ٥-٣ makes this button dangerous for a program, and only for a program.
+     *
+     * A program's session is what AUTOEXEC built: the shell, the drive change, the program
+     * itself. Its snapshot captures that. `vm.restart()` reboots the machine, which runs
+     * AUTOEXEC again and lands on the same screen -- so "restart" would look like it did
+     * nothing. Worse, the next launch RESTORES the snapshot instead of booting, so there is
+     * no path that gets a program back to its first screen.
+     *
+     * So for a program, restart means "forget this session and start it over": the snapshot
+     * is deleted and the machine cold-boots, which is what the user is asking for. Built-in
+     * guests keep the plain reboot.
+     */
+    if (active.id.startsWith('prog-')) {
+      snapshotSaved.current.delete(active.id);
+      void deleteDisk(SNAPSHOT_DB_KEY(active.id)).then(() => {
+        setBooted(false);
+        window.setTimeout(() => void boot(), 80);
+      });
+      toast('إعادة تشغيل البرنامج من البداية');
+      return;
+    }
     const bytes = vm?.getDataDisk();
     if (!bytes) {
       void vm?.restart();

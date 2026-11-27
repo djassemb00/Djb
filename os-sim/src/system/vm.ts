@@ -241,7 +241,22 @@ export function createVM(opts: VMOptions): VMApi {
       }
       schedule();
     },
+    /*
+     * Restoring has to WAIT for the machine to exist.
+     *
+     * v86 builds its CPU a few hundred milliseconds after the constructor returns (it waits
+     * for the BIOS and the wasm module), and until then `emulator.restore_state` throws
+     * "Cannot read properties of undefined". Measured: called 0 ms after construction it
+     * throws every time; called after the machine is up it takes 32 ms and restores the
+     * exact screen. The old version of this method called it immediately, so the resume fast
+     * path could fail silently for every guest that used it -- the error was caught by the
+     * caller and turned into a cold boot, which looks like "resume is just not faster".
+     */
     restoreState: async (state) => {
+      for (let waited = 0; !raw.v86?.cpu?.devices?.vga; waited += 20) {
+        if (waited > 5000) throw new Error('تعذر استئناف الجلسة: لم تجهز الآلة الافتراضية');
+        await new Promise((r) => setTimeout(r, 20));
+      }
       await emulator.restore_state(state);
       setState('running');
     },
