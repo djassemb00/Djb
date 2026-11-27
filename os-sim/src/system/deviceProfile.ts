@@ -21,10 +21,20 @@ export interface DeviceProfile {
   verdict: string;
 }
 
-const UA = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+/**
+ * Read the user agent at call time, not at module load.
+ *
+ * It used to be a module-level `const UA`, which froze whatever navigator said at
+ * import time. That is invisible on a phone (the UA never changes) but it is wrong for
+ * tests and for anything that re-hosts the app (a WebView whose UA is patched after
+ * load, a preview iframe). Found by writing the first test this module ever had.
+ */
+function currentUa(): string {
+  return typeof navigator === 'undefined' ? '' : navigator.userAgent;
+}
 
 export function detectDevice(): DeviceProfile {
-  const ua = UA.toLowerCase();
+  const ua = currentUa().toLowerCase();
   if (ua.includes('hihonor') || ua.includes('honor')) {
     return {
       vendor: 'honor',
@@ -36,12 +46,23 @@ export function detectDevice(): DeviceProfile {
         'في قائمة التطبيقات الأخيرة: اسحب نافذة التطبيق لأسفل واقفلها 🔒 حتى لا تُغلق',
       ],
       limits: [
-        'لا يوجد AVF/pKVM على أجهزة HONOR ← مسار «آلة افتراضية أصلية» غير متاح',
+        // AVF/pKVM is ARM64-only AND must be shipped by the OEM: AOSP documents both
+        // (source.android.com/docs/core/virtualization). We do not have a Magic4 Pro
+        // reading, so this says how to check instead of asserting it: one Honor device
+        // in Podroid's public compatibility list (Honor Play 60 Plus, MagicOS 8.0)
+        // reports no virtualization_framework.
+        'AVF/pKVM غير مُعلَن على أجهزة HONOR المُختبَرة (Podroid #62: Honor Play 60 Plus / MagicOS 8.0 ← لا). ' +
+          'تحقّق على جهازك: adb shell pm list features | grep virtualization_framework',
         'ألعاب AAA حديثة (GTA V، Cyberpunk) لا تعمل في متصفح WebAssembly أبداً: محرّك V8 يفسّر x86 ' +
           'بسرعة ~٧٠ مليون تعليمة/ثانية مقابل ~٥٠٠٠ للعتاد، أي أبطأ ٧٠ مرة — واللعبة تُقلع فعلياً في ' +
           'Winlator (Wine+Box64 أصلي) بحدود ٢٠–٤٠ إطاراً/ثانية على ٧٢٠p وذاكرة ٨ غيغا',
         'MagicOS مبني على أندرويد ١٣/١٤ ← وضع سطح مكتب أندرويد ١٦/١٧ غير متاح',
-        'Snapdragon 8 Gen 1 يسخن سريعاً (يهبط إلى ٧١٪ خلال ٣٠ دقيقة) ← حاكم الحرارة ضرورة لا رفاهية',
+        // Numbers, cited: TechX measured a 30-minute CPU-throttling run on a Moto X30
+        // and the chip held 80% of peak; Beebom/technosports' OnePlus 10 Pro run held
+        // 87% after 8 minutes and 79% at worst. The earlier text said "drops to 71% in
+        // 30 minutes", which no source supports -- corrected.
+        'Snapdragon 8 Gen 1 يسخن سريعاً: ٨٠٪ من الذروة بعد ٣٠ دقيقة خنق (TechX / Moto X30)، ' +
+          'و٧٩–٨٨٪ على OnePlus 10 Pro ← حاكم الحرارة ضرورة لا رفاهية',
         'لا Phantom Process Killer على أندرويد ١٤ إن فعّلت «تعطيل قيود العمليات الفرعية» في خيارات المطوّر',
         'أندرويد ١٢+ يقتل «العمليات الشبحية» عند ٣٢ عملية لكل النظام، ويقتل ما يستهلك CPU في الخلفية',
       ],

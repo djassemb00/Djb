@@ -160,6 +160,48 @@ function auditStatic() {
   const win = files.filter((f) => /windows101|win101/i.test(f));
   add('1.10', 'audit', win.length === 0 && has('public/licenses/v86-LICENSE.txt'), 'no Windows guest + licence');
 
+  // 1.8b every file the gate itself executes or reads must be tracked by git.
+  // This is the general form of A6/A12: a check that depends on an ignored file passes
+  // on this machine and fails on every clean checkout, which is the worst kind of bug
+  // because the local signal says green.
+  const tracked = new Set(
+    execSync('git ls-files', { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean),
+  );
+  const selfDeps = (read('tools/gate.mjs').match(/(?:run\('node |read\(')([\w./-]+\.(?:mjs|js|ts|json|md))/g) ?? [])
+    .map((m) => m.replace(/^run\('node /, '').replace(/^read\('/, ''))
+    .filter((f) => !f.startsWith('node_modules'));
+  const untracked = [...new Set(selfDeps)].filter((f) => !tracked.has(f));
+  add(
+    '1.8b',
+    'audit',
+    untracked.length === 0,
+    untracked.length ? `gate depends on untracked: ${untracked.join(', ')}` : `${new Set(selfDeps).size} gate dependencies tracked`,
+  );
+
+  // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
+  // source. The "71% in 30 minutes" figure was invented; a test caught it only because
+  // I happened to write one. This makes it structural: a percentage or a ratio in the
+  // UI-facing prose modules has to be accounted for.
+  const prose = ['src/system/deviceProfile.ts', 'src/system/routes.ts']
+    .filter(has)
+    .map(read)
+    .join('\n');
+  const ledger = has('AUDIT.md') ? read('AUDIT.md') : '';
+  const claims = [...prose.matchAll(/[٠-٩\d]{1,3}(?:[٫.][٠-٩\d])?٪/g)].map((m) => m[0]);
+  const unsourced = [...new Set(claims)].filter((c) => {
+    // Arabic-Indic and ASCII digits are not interchangeable, so both spellings count
+    const ascii = c.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+    return !ledger.includes(c) && !ledger.includes(ascii);
+  });
+  add(
+    '1.12',
+    'audit',
+    unsourced.length === 0,
+    unsourced.length
+      ? `numeric claims not in AUDIT.md: ${unsourced.join(', ')}`
+      : `${new Set(claims).size} numeric UI claims, all in the ledger`,
+  );
+
   // 1.11b CI must live where GitHub looks for it, or all of the above is decoration
   const rootWf = join(ROOT, '..', '.github/workflows');
   const wfFiles = existsSync(rootWf) ? readdirSync(rootWf).filter((f) => /\.ya?ml$/.test(f)) : [];
@@ -229,7 +271,7 @@ function prove() {
     add('4.4 size budget', 'prove', main.size < 800_000 && gz < 240_000, `js=${main.size} gzip=${gz}`);
   }
   // the bridge must be reachable through the real Capacitor runtime, not a stub
-  run('node .probe/captest.mjs', '4.5 bridge smoke (real @capacitor/core)');
+  run('node tools/bridge-smoke.mjs', '4.5 bridge smoke (real @capacitor/core)');
 }
 
 // ────────────────────────────────────────────────────────── orchestration
