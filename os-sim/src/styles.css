@@ -2272,3 +2272,17 @@ textarea.input {
   border: 1px dashed rgba(255, 255, 255, 0.35);
 }
 .get-apps svg { width: 21px; height: 21px; }
+
+/* route advice under a dropped file */
+.route-box {
+  margin-top: 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  direction: rtl;
+}
+.route-box.native { border-color: rgba(96, 165, 250, 0.4); }
+.route-box.none { border-color: rgba(248, 113, 113, 0.35); }
+.route-box b { color: #93c5fd; }
+.route-box.none b { color: #fca5a5; }

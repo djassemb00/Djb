@@ -13,6 +13,7 @@ import { useRef, useState } from 'react';
 import { AlertTriangle, AppWindow, CheckCircle2, Download, FileWarning, Loader2, Play, Trash2, Upload } from 'lucide-react';
 import { describePE, inspectPE, type PEInfo } from '../system/pe';
 import { buildProgramDisk } from '../system/guest';
+import { adviseRoute } from '../system/routes';
 import { useVM } from '../store/useVM';
 import { sfx } from '../system/sound';
 import { ProgramIcon } from '../components/ProgramIcon';
@@ -263,6 +264,27 @@ export function AppsApp() {
                 {r.info.imports.length > 8 ? ` +${r.info.imports.length - 8}` : ''}
               </p>
             )}
+            {r.route !== 'dos-now' && (() => {
+              const advice = adviseRoute({
+                dos: !r.info.ok,
+                is64: r.info.is64,
+                isDotNet: r.info.isDotNet,
+                bytes: r.size,
+              });
+              return (
+                <div className={`route-box ${advice.route}`}>
+                  <b className="tiny">{advice.title}</b>
+                  <p className="tiny muted" style={{ margin: '3px 0 0' }}>
+                    {advice.detail}
+                  </p>
+                  {advice.storage && (
+                    <p className="tiny" style={{ margin: '3px 0 0', color: '#fbbf24' }}>
+                      مساحة مطلوبة: {advice.storage}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
             {r.route === 'dos-now' && (
               <div className="row" style={{ gap: 8, marginTop: 6 }}>
                 <button className="btn primary" onClick={() => void launch(r)} disabled={busy}>
