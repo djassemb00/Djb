@@ -22,10 +22,35 @@ export interface NativeReading {
 
 type PluginHandle = { read: () => Promise<NativeReading> };
 
-/** Capacitor injects plugins on `window` at runtime; typed loosely on purpose */
+/**
+ * Two shapes are valid in the wild:
+ *  - a plugin registered through `registerPlugin()` (what @capacitor/core produces,
+ *    and what a native build always gives us);
+ *  - a plain object on `Capacitor.Plugins` (what tests and the browser preview use).
+ * Both are accepted here so the rest of the app has one code path.
+ */
+type CapacitorLike = {
+  Plugins?: Record<string, PluginHandle>;
+  registerPlugin?: (name: string) => PluginHandle;
+  PluginHeaders?: { name: string }[];
+};
+
+function cap(): CapacitorLike | null {
+  return (window as unknown as { Capacitor?: CapacitorLike }).Capacitor ?? null;
+}
+
 function plugin(): PluginHandle | null {
-  const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, PluginHandle> } }).Capacitor;
-  return cap?.Plugins?.NovaThermal ?? null;
+  const c = cap();
+  if (!c) return null;
+  if (c.Plugins?.NovaThermal) return c.Plugins.NovaThermal;
+  // a native build announces the plugin in PluginHeaders before any JS imports it
+  const announced = c.PluginHeaders?.some((h) => h.name === 'NovaThermal');
+  if (announced && typeof c.registerPlugin === 'function') {
+    const p = c.registerPlugin('NovaThermal');
+    c.Plugins = { ...(c.Plugins ?? {}), NovaThermal: p };
+    return p;
+  }
+  return null;
 }
 
 export function nativeAvailable(): boolean {

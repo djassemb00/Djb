@@ -42,6 +42,28 @@ describe('thermal bridge', () => {
     expect(g.throttle).toBeLessThan(1);
   });
 
+  it('finds a plugin announced by PluginHeaders and registered lazily', async () => {
+    let registered = 0;
+    const calls: string[] = [];
+    (globalThis as unknown as { Capacitor: unknown }).Capacitor = {
+      PluginHeaders: [{ name: 'NovaThermal' }],
+      registerPlugin: (name: string) => {
+        registered++;
+        return {
+          read: async () => {
+            calls.push(name);
+            return { status: 1, battery: 90, charging: true, sdk: 34, device: 'x' };
+          },
+        };
+      },
+    };
+    expect(nativeAvailable()).toBe(true);
+    const r = await readNative();
+    expect(registered).toBe(1);
+    expect(r?.status).toBe(1);
+    expect(calls).toEqual(['NovaThermal']);
+  });
+
   it('labels every status, including an unsupported one', () => {
     expect(statusLabel(-1)).toContain('غير متاح');
     expect(statusLabel(0)).toBe('none');
