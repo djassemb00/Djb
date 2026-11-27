@@ -178,7 +178,7 @@ export function MachineView() {
        * let the rest of this function see a plain boot image plus, when present, its volume.
        */
       let image = active.bytes ?? (await loadImage(active.path, setLoadPct));
-      let volume: Uint8Array | undefined = active.bootBytes ? active.bytes : undefined;
+      let volume: Uint8Array | undefined = active.volumeBytes;
       {
         const pair = decodeBootSet(image);
         if (pair) {
@@ -226,7 +226,7 @@ export function MachineView() {
         memoryMB: active.memoryMB,
         // NovaDesk ships NovaFS on an IDE disk so files survive a reboot; a launched
         // program brings its own FAT16 volume, which is already on disk in memory
-        dataDiskBytes: isNovaDesk ? NOVA_DATA_BYTES : (volume?.byteLength ?? active.dataBytes ?? 0),
+        dataDiskBytes: isNovaDesk ? NOVA_DATA_BYTES : (volume?.byteLength ?? 0),
         // a launched program's own volume wins over anything saved: it is not NovaFS
         dataDisk: volume ?? savedDisk ?? undefined,
         onSerial: pushSerial,

@@ -15,13 +15,15 @@ export interface MachineImage {
   /** in-memory disk (a program the user dropped in this session) */
   bytes?: Uint8Array;
   /**
-   * ٥-٢: the boot floppy, when `bytes` is only the DATA volume. A FAT16 volume cannot boot,
-   * so a program too big for a floppy arrives as two images: a small boot floppy in `bytes`
-   * (mounted at the slot above) and the FAT16 volume here (mounted as the first fixed disk).
+   * ٥-٢: the FAT16 volume that goes with this image, mounted as the first fixed disk.
+   *
+   * A FAT16 volume cannot boot (its MBR has no boot code), so a program too big for a floppy
+   * needs TWO images: the boot floppy in `bytes`, and its volume here. There is deliberately
+   * no `bootBytes`: an earlier version swapped the two between fields, which would have
+   * booted the volume and failed in the one place no test could see it. One field, one
+   * meaning, and `bytes` is always what boots.
    */
-  bootBytes?: Uint8Array;
-  /** size of the FAT16 volume, when this image carries one */
-  dataBytes?: number;
+  volumeBytes?: Uint8Array;
 }
 
 /** Third-party guests are real OSes written by others: name the licence so the
@@ -140,9 +142,8 @@ export const useVM = create<VMStore>()(
       launchProgramWithVolume: ({ name, boot, volume }) => {
         const id = `prog-${Date.now().toString(36)}`;
         /*
-         * `bytes` stays the BOOT floppy so any existing caller that only knows `bytes` still
-         * boots the right thing, and the volume rides alongside in `bootBytes`/`dataBytes`.
-         * MachineView reads bootBytes first: when it is present, `bytes` is the volume.
+         * `bytes` is the boot floppy, because that is what `bytes` means everywhere else in
+         * this store and in MachineView. The volume gets its own field. Nothing is swapped.
          */
         set((s) => ({
           userImages: [
@@ -155,9 +156,8 @@ export const useVM = create<VMStore>()(
               memoryMB: 64,
               note: 'برنامجك أنت — قرص صلب FAT16',
               builtin: false,
-              bytes: volume,
-              bootBytes: boot,
-              dataBytes: volume.byteLength,
+              bytes: boot,
+              volumeBytes: volume,
             },
           ],
           activeImageId: id,
