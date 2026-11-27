@@ -271,6 +271,17 @@ export function MachineView() {
     if (screen !== 'machine') setScreen('machine');
     window.setTimeout(() => void boot(), 60);
     toast(`إقلاع ${img.name}`);
+    // Some guests stop at their own boot menu with a short timeout (KolibriOS waits
+    // 5 s). Send Enter so the app does not look frozen for that long.
+    if (img.id === 'kolibri') {
+      window.setTimeout(() => {
+        try {
+          vmRef.current?.sendScancodes([0x1c, 0x9c]);
+        } catch {
+          /* no VM yet: the guest will boot on its own timeout */
+        }
+      }, 1400);
+    }
   };
 
   const busy = phase === 'loading' || phase === 'booting';

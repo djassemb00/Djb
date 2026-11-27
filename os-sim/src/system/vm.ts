@@ -43,6 +43,8 @@ export interface VMApi {
   getDataDisk: () => Uint8Array | null;
   destroy: () => void;
   getState: () => VMState;
+  /** resume an exported state (v86 save_state) without rebuilding the machine */
+  restoreState: (state: ArrayBuffer) => Promise<void>;
   /** low-level handle, exposed for the toolkit (state snapshots, screenshots…) */
   raw: V86;
 }
@@ -157,6 +159,10 @@ export function createVM(opts: VMOptions): VMApi {
       emulator.keyboard_send_scancodes([0x1c, 0x9c]); // Enter / Enter-release
     },
     sendScancodes: (codes) => emulator.keyboard_send_scancodes(codes),
+    restoreState: async (state) => {
+      await emulator.restore_state(state);
+      setState('running');
+    },
     isAlive,
     setScale: (n) => emulator.screen_set_scale(n, n),
     saveState: () => emulator.save_state(),

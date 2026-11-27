@@ -14,6 +14,8 @@ export interface MachineImage {
   size?: number;
 }
 
+/** Third-party guests are real OSes written by others: name the licence so the
+ *  list stays honest about what we ship. */
 /** Images that ship with the app (served from /public/images). */
 export const BUILTIN_IMAGES: MachineImage[] = [
   {
@@ -23,6 +25,18 @@ export const BUILTIN_IMAGES: MachineImage[] = [
     slot: 'fda',
     memoryMB: 32,
     note: 'نظام سطح مكتب كامل مكتوب من الصفر (نواة 32-bit، نوافذ، ماوس، أصوات) — يعمل على العتاد المُحاكى',
+    builtin: true,
+    size: 1474560,
+  },
+  {
+    id: 'kolibri',
+    name: 'KolibriOS',
+    path: './images/kolibri.img',
+    slot: 'fda',
+    memoryMB: 32,
+    note:
+      'نظام تشغيل حقيقي كامل في 1.44 ميغابايت: واجهة رسومية ونوافذ وألعاب وأدوات — ' +
+      'قِس الفرق بنفسك. اضغط Enter عند ظهور قائمة الإقلاع (أو انتظر ٥ ثوانٍ)',
     builtin: true,
     size: 1474560,
   },
