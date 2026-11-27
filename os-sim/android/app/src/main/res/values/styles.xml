@@ -22,11 +22,12 @@
         <item name="windowNoTitle">true</item>
     </style>
 
+
     <!-- Cold-start splash: pure black with the Nova mark, matching the boot screen. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="android:background">@drawable/nova_splash</item>
         <item name="windowSplashScreenBackground">@color/nova_bg</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/nova_mark</item>
-        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
     </style>
 </resources>

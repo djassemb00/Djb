@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cold-start background. Deliberately NOT named splash.xml: a splash.png already
+     lives in drawable/, and two files with the same resource name in the same
+     folder is a duplicate-resource error, not a tie-break. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/nova_bg" />
+    <item
+        android:width="128dp"
+        android:height="128dp"
+        android:gravity="center">
+        <bitmap android:src="@mipmap/ic_launcher" android:gravity="center" />
+    </item>
+</layer-list>

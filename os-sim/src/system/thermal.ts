@@ -12,14 +12,26 @@
  *   - PowerManager.getThermalHeadroom(forecast) (API 30+)
  *   - BatteryManager via navigator.getBattery() (WebView: where available)
  */
-export type ThermalLevel = 'none' | 'light' | 'moderate' | 'severe' | 'critical' | 'emergency' | 'shutdown';
+/** 'unknown' means "this build cannot read the platform" — not "cold" */
+export type ThermalLevel =
+  | 'unknown'
+  | 'none'
+  | 'light'
+  | 'moderate'
+  | 'severe'
+  | 'critical'
+  | 'emergency'
+  | 'shutdown';
 
 /** 0 = platform said nothing, 1..6 = Android THERMAL_STATUS_* ORDER */
 const ORDER: ThermalLevel[] = ['none', 'light', 'moderate', 'severe', 'critical', 'emergency', 'shutdown'];
 
 export interface GovernorReading {
   thermal: ThermalLevel;
-  /** 0..1, where 1 means "the OS is about to throttle" (Android returns >1.0 at the limit) */
+  /**
+   * Platform thermal headroom, 1.0 = the SEVERE throttling threshold (it is a 10-second
+   * forecast, not a temperature). null when the platform cannot say.
+   */
   headroom: number | null;
   battery: number | null;
   charging: boolean | null;
@@ -52,9 +64,9 @@ function readThermal(): { level: ThermalLevel; headroom: number | null } {
       /* fall through to the generic path */
     }
   }
-  // No native bridge: the browser cannot see thermal state. Report "unknown"
-  // rather than pretending the device is cool.
-  return { level: 'none', headroom: null };
+  // No native bridge (or the reading is stale): the browser cannot see thermal state.
+  // Report 'unknown' rather than pretending the device is cool.
+  return { level: 'unknown', headroom: null };
 }
 
 export function isAndroidShell(): boolean {
@@ -77,28 +89,43 @@ export async function readGovernor(): Promise<GovernorReading> {
     /* battery API is optional */
   }
 
-  // Policy: step the guest down in stages. Halving is enough to stop a thermal
-  // runaway without making the desktop feel broken.
+  // Policy: step the guest down in stages, strongest signal wins.
+  //
+  // This used to be a chain of `if`s that the *last* branch overwrote, so a cool phone
+  // with headroom >= 0.9 was still throttled to 0.5 whenever the platform also said
+  // "moderate" was not the case — the exact opposite of the intent. It is now a table
+  // keyed by severity: each level has a throttle and a reason, and battery pressure
+  // can only make it stricter, never looser.
   let throttle = 1;
-  let reason = 'الحرارة طبيعية — السرعة الكاملة';
+  let reason =
+    level === 'unknown'
+      ? 'لا يمكن قراءة حرارة الجهاز من هنا — السرعة الكاملة'
+      : 'الحرارة طبيعية — السرعة الكاملة';
 
-  if (headroom !== null && headroom >= 0.9) {
+  // severity by platform status; `light` is a warning, not a throttle
+  const byLevel: Partial<Record<ThermalLevel, [number, string]>> = {
+    moderate: [0.6, 'الحرارة متوسطة — خُفّضت السرعة'],
+    severe: [0.4, 'الحرارة مرتفعة — خُفّضت السرعة كثيراً لحماية الجهاز'],
+    critical: [0.2, 'الجهاز في حالة حرجة — أُوقف الحمل الثقيل، احفظ عملك'],
+    emergency: [0.2, 'الجهاز في حالة حرجة — أُوقف الحمل الثقيل، احفظ عملك'],
+    shutdown: [0.2, 'الجهاز في حالة حرجة — أُوقف الحمل الثقيل، احفظ عملك'],
+  };
+  const fromLevel = byLevel[level];
+  if (fromLevel) {
+    throttle = fromLevel[0];
+    reason = fromLevel[1];
+  }
+
+  // Headroom is a 10 s forecast where 1.0 is the SEVERE threshold, so 0.9 means
+  // "SEVERE is about a tenth of the way off". It may only tighten the status.
+  if (headroom !== null && headroom >= 0.9 && throttle > 0.5) {
     throttle = 0.5;
     reason = 'الهاتف يقترب من الخنق الحراري — خُفّضت السرعة للنصف';
   }
-  if (level === 'moderate') {
-    throttle = 0.6;
-    reason = 'الحرارة متوسطة — خُفّضت السرعة';
-  } else if (level === 'severe') {
-    throttle = 0.4;
-    reason = 'الحرارة مرتفعة — خُفّضت السرعة كثيراً لحماية الجهاز';
-  } else if (level === 'critical' || level === 'emergency' || level === 'shutdown') {
-    throttle = 0.2;
-    reason = 'الجهاز في حالة حرجة — أُوقف الحمل الثقيل، احفظ عملك';
-  }
 
-  if (battery !== null && battery <= 15 && charging === false) {
-    throttle = Math.min(throttle, 0.5);
+  // Battery pressure is a separate axis: it can lower the throttle, never raise it.
+  if (battery !== null && battery <= 15 && charging === false && throttle > 0.5) {
+    throttle = 0.5;
     reason = `البطارية ${battery}% — وُضع توفير الطاقة`;
   }
 
@@ -108,6 +135,7 @@ export async function readGovernor(): Promise<GovernorReading> {
 /** Human label for the status card. */
 export function thermalLabel(r: GovernorReading): string {
   const names: Record<ThermalLevel, string> = {
+    unknown: 'غير متاح',
     none: 'طبيعية',
     light: 'خفيفة',
     moderate: 'متوسطة',

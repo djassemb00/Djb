@@ -1,5 +1,5 @@
 apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
+apply plugin: "org.jetbrains.kotlin.android"
 
 android {
     namespace "os.nova.shell"
@@ -25,12 +25,16 @@ android {
             useLegacyPackaging = false
         }
     }
+    // Capacitor 7 itself is compiled with Java 21 (see
+    // node_modules/@capacitor/android/capacitor/build.gradle) and capacitor.build.gradle
+    // re-applies VERSION_21 to this module. Matching 17 here would make javac reject
+    // Capacitor's class files (wrong version 65.0, should be 61.0), so we align on 21.
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '21'
     }
     buildTypes {
         release {

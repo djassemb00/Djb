@@ -32,6 +32,12 @@ class ThermalPlugin : Plugin() {
         context.getSystemService(Context.POWER_SERVICE) as PowerManager
     }
 
+    /**
+     * Capacitor runs plugin methods on its own "CapacitorPlugins" HandlerThread
+     * (Bridge.taskHandler), not on the UI thread. Every call below is a read-only
+     * system property, and PowerManager/BatteryManager are safe from any thread, so
+     * we stay off the main thread on purpose — a governor poll must never block UI.
+     */
     @PluginMethod
     fun read(call: PluginCall) {
         val result = JSObject()
@@ -42,16 +48,21 @@ class ThermalPlugin : Plugin() {
         }
         result.put("status", status)
 
-        var headroom: Double? = null
+        // getThermalHeadroom(seconds) — SECONDS, not minutes (PowerManager javadoc,
+        // Android 11+): 1.0 is the SEVERE throttling threshold, values are clamped at
+        // 0, and the platform rate-limits calls to one per second (a faster call
+        // returns NaN, which is NOT "unsupported"). We poll every 10 s, so NaN here
+        // means a misbehaving OEM HAL, and dropping the field is the honest answer.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // 10-minute forecast; clamp because some vendors return Float.NaN
-            val h = power.getThermalHeadroom(10)
-            if (!h.isNaN() && h > 0f && h < 10f) headroom = h.toDouble()
+            val h: Float = power.getThermalHeadroom(10) // 10 s ahead
+            if (!h.isNaN() && h > 0f && h < 10f) result.put("headroom", h.toDouble())
         }
-        if (headroom != null) result.put("headroom", headroom)
 
         val battery = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-        val level = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        // getIntProperty returns Int.MIN_VALUE when the property is unsupported, and
+        // it arrives as a nullable from Kotlin's view of the Java signature.
+        val raw = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val level = if (raw == null || raw < 0 || raw > 100) -1 else raw
         result.put("battery", level)
         result.put("charging", battery?.isCharging ?: false)
         result.put("sdk", Build.VERSION.SDK_INT)

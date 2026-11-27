@@ -384,7 +384,7 @@
 | ١-٥ إزالة أثر ويندوز | ✅ منجز سابقاً | `grep` = صفر |
 | ١-٦ التراخيص | ✅ | `public/licenses/v86-LICENSE.txt` + بطاقة «حول» + اختبار يتحقق من وجود النص |
 | ١-٧ سياسة «لا قرصنة» | ✅ | لا صورة مملوكة في `public/` |
-| ٦-١ نقل الفحوص إلى Vitest | ✅ | **٦ ملفات · ٢٢ اختباراً · كلها ناجحة في ٩ ثوانٍ** |
+| ٦-١ نقل الفحوص إلى Vitest | ✅ | **٧ ملفات · ٤٠ اختباراً · كلها ناجحة في ٩٫٨ ثانية** |
 | ٦-٢ CI على GitHub Actions | ✅ كود | `.github/workflows/ci.yml` — فحص أنواع + اختبارات + ميزانية حجم |
 | ٦-٣ ميزانية الأداء | ✅ | JS ٧٢٩ كيلو · gzip ٢١٠ كيلو (الحدود: ٨٠٠ / ٢٤٠) |
 
@@ -395,13 +395,39 @@
 | `compileSdk/targetSdk = 36` | ✅ مُتحقَّق آلياً من الملف |
 | AGP 8.9.2 (يدعم API 36) | ✅ مُتحقَّق |
 | Gradle 8.13 | ✅ مُتحقَّق |
-| **edge-to-edge** (أثر جانبي لـtargetSdk ٣٥+) | ✅ عُولج: ٩ مواضع `env(safe-area-inset-*)` + `windowDrawsSystemBarBackgrounds` + `shortEdges` |
+| **edge-to-edge** (أثر جانبي لـtargetSdk ٣٥+) | ✅ عُولج: ٩ مواضع `env(safe-area-inset-*)` + `windowDrawsSystemBarBackgrounds` + `shortEdges` + **`adjustMarginsForEdgeToEdge: 'force'`** (لأن `env()` صفر في `Theme.AppCompat`) |
 | **بناء APK فعلي (aapt يقرأ 36)** | ⛔ **غير مُتحقَّق** — لا JDK ولا Android SDK هنا |
 | **التشغيل على جهاز** (شريط الحالة، النوتش، الإيماءات) | ⛔ **غير مُتحقَّق** — يحتاج هاتفك |
 
-**الحكم الصادق:** البند ١-١ مكتمل **في الكود** ومُتحقَّق آلياً — **١٤ فحصاً ثابتاً** للـKotlin
-ضد واجهة Capacitor الفعلية + **٨ فحوص** لإعدادات أندرويد + **اختبار يثبت أن الإضافة المسجّلة
-في Kotlin تُستدعى من JS عبر الجسر نفسه**. لكنه **ليس مكتملاً كمُنتَج** حتى يُبنى APK
+### جولة الإصلاح (٢١-ب): ما كان **مكسوراً فعلاً** وماذا صار
+
+فحصت البند سطراً سطراً بدل الاكتفاء بالنجاح الأخضر. هذي الأخطاء كانت حقيقية:
+
+| # | الخطأ | الأثر لو لم يُصلَح | الإصلاح |
+| --- | --- | --- | --- |
+| ١ | `drawable/splash.xml` و`drawable/splash.png` في نفس المجلد | **فشل بناء** (مورد مكرّر) | حُذف الاثنان، وأُنشئ `nova_splash.xml` باسم واحد |
+| ٢ | `compileOptions = 17` بينما Capacitor 7 يُجمَّع على **21** و`capacitor.build.gradle` يفرض 21 على الوحدة | **فشل تجميع** `class file has wrong version 65.0` | ٢١ في `compileOptions` و`jvmTarget` |
+| ٣ | `kotlin-gradle-plugin:1.9.25` | لا يدعم `jvmTarget 21` (خط EOL) | 2.1.21 + `apply plugin: "org.jetbrains.kotlin.android"` |
+| ٤ | `postSplashScreenTheme → AppTheme.NoActionBar` بدل `AppTheme` | يخسر `windowDrawsSystemBarBackgrounds` و`shortEdges` بعد الإقلاع | صار `@style/AppTheme` |
+| ٥ | الاعتماد على `env(safe-area-inset-*)` داخل WebView | في `Theme.AppCompat` يعيد `SafeAreaInsets.isSupported()=false` → القيم **صفر دائماً** → المحتوى تحت النوتش | `adjustMarginsForEdgeToEdge: 'force'` في `capacitor.config.ts` (الكود مقروء من `CapacitorWebView.edgeToEdgeHandler`) |
+| ٦ | سلسلة `if` في `readGovernor` | `headroom ≥ 0.9` يخفض للنصف ثم يُلغيه الفرع الأخير → **الحاكم لا يعمل قط** | جدول شدّة + قاعدة «الإشارة الأشد تفوز» |
+| ٧ | لا معالج لزر الرجوع | سحبة واحدة تُخرج المستخدم من الآلة قيد التشغيل | `src/system/backButton.ts` + `@capacitor/app` 7.1.2 (سجّلته `cap sync`) |
+| ٨ | زرّا سطح المكتب عند `bottom: 22` بلا آمن سفلي | يقعان فوق شريط إيماءات MagicOS | `calc(22px + var(--safe-bottom))` |
+| ٩ | `headroom` موصوف بأنه «١٠ دقائق» ويُنبّه عند `>1.0` | دلالة خاطئة: المعامل **ثوانٍ**، و`1.0` حدّ SEVERE | صُحّح في Kotlin وTS مع تعليق يذكر المصدر |
+| ١٠ | اختبار اسمه «لا يدّعي أن الجهاز بارد» ويؤكد `'none'` (= «طبيعية») | يُثبّت الكذب بدل منعه | أُضيف المستوى `'unknown'`، والاختبار يؤكد `'unknown'` |
+
+**تصحيح ذاتي مسجَّل:** حذفت `showWhenLocked`/`turnScreenOn` ظنّاً أنهما `@hide` في API 36.
+قرأت `aosp-mirror/platform_frameworks_base@android16-release`
+`core/res/res/values/attrs_manifest.xml` فوجدتهما **عامّين وموثّقين**، فأعدتهما، والاختبار الآن
+يؤكد **وجودهما**.
+
+**تصحيح ذاتي ثانٍ:** تراجعت عن `Theme.Material3` لأن `com.google.android.material` غير موجود
+في اعتماديات المشروع — كان سيفشل في ربط الموارد.
+
+**الحكم الصادق بعد الإصلاح:** البند ١-١ مكتمل **في الكود** ومُتحقَّق آلياً —
+**٤٠ اختباراً** (٧ ملفات، ٩٫٨ ثانية) منها ١٥ تحرس إعدادات أندرويد نفسها،
+و**١٤ فحصاً ثابتاً** للـKotlin ضد واجهة Capacitor الفعلية، و`tsc --noEmit` نظيف،
+و`npm run build` + `npx cap sync android` ناجحان. لكنه **ليس مكتملاً كمُنتَج** حتى يُبنى APK
 ويُشغَّل على الجهاز. قائمة تحقق الجهاز في §١٢.
 
 **لم يُنفَّذ هنا، وسببه بيئي لا تقني:**

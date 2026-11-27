@@ -12,6 +12,7 @@ import { NovaMark } from './components/NovaMark';
 import { MachineView } from './machine/MachineView';
 import { useVM } from './store/useVM';
 import { cx } from './system/cx';
+import { installBackHandler } from './system/backButton';
 
 export default function App() {
   const phase = useOS((s) => s.phase);
@@ -25,6 +26,21 @@ export default function App() {
   const [launcher, setLauncher] = useState(false);
   const [power, setPower] = useState(false);
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const setVmScreen = useVM((s) => s.setScreen);
+
+  // Hardware/gesture back: unwind the UI instead of leaving the app. Registered
+  // before anything is open so the order (topmost first) matches what the user sees.
+  useEffect(
+    () =>
+      installBackHandler([
+        () => center && (setCenter(false), true),
+        () => launcher && (setLauncher(false), true),
+        () => power && (setPower(false), true),
+        () => vmScreen === 'machine' && (setVmScreen('desktop'), true),
+        () => false, // at the desk: let Android do its normal thing (pause/exit)
+      ]),
+    [center, launcher, power, vmScreen, setVmScreen],
+  );
 
   useEffect(() => {
     const sync = () =>
@@ -112,8 +128,8 @@ export default function App() {
                 }}
                 style={{
                   position: 'absolute',
-                  insetInlineStart: 14,
-                  bottom: 22,
+                  insetInlineStart: 'calc(14px + var(--safe-left))',
+                  bottom: 'calc(22px + var(--safe-bottom))',
                   zIndex: 850,
                   background: 'var(--panel)',
                   backdropFilter: 'blur(var(--blur))',
@@ -128,8 +144,8 @@ export default function App() {
                 onClick={() => setPower((v) => !v)}
                 style={{
                   position: 'absolute',
-                  insetInlineEnd: 14,
-                  bottom: 22,
+                  insetInlineEnd: 'calc(14px + var(--safe-right))',
+                  bottom: 'calc(22px + var(--safe-bottom))',
                   zIndex: 850,
                   background: 'var(--panel)',
                   backdropFilter: 'blur(var(--blur))',

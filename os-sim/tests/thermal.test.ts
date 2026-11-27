@@ -27,8 +27,43 @@ describe('thermal bridge', () => {
     expect(nativeAvailable()).toBe(false);
     expect(await readNative()).toBeNull();
     const g = await readGovernor();
-    expect(g.thermal).toBe('none');
+    // 'unknown', NOT 'none': the test name and the assertion used to disagree, and the
+    // old assertion (none = "طبيعية" in the UI) was exactly the lie the name denied.
+    expect(g.thermal).toBe('unknown');
     expect(g.throttle).toBe(1);
+    expect(g.reason).toContain('لا يمكن قراءة');
+  });
+
+  it('throttles for heat and says so, and never mixes the two reasons up', async () => {
+    const { setNativeThermalReader: set } = await import('../src/system/thermal');
+    set(() => ({ thermal: 3, headroom: 0.1 })); // severe
+    const severe = await readGovernor();
+    expect(severe.thermal).toBe('severe');
+    expect(severe.throttle).toBe(0.4);
+    expect(severe.reason).toContain('مرتفعة');
+
+    // a real 'none' (0) from the platform is what "normal" looks like; a *missing*
+    // reading must never be shown as normal, so that case is asserted separately above
+    set(() => ({ thermal: 0, headroom: 0.2 }));
+    const cool = await readGovernor();
+    expect(cool.thermal).toBe('none');
+    expect(cool.throttle).toBe(1);
+    expect(cool.reason).toContain('طبيعية');
+  });
+
+  it('lets headroom tighten the throttle but never loosen a severe status', async () => {
+    const { setNativeThermalReader: set } = await import('../src/system/thermal');
+    // cool status but a forecast that says throttling is imminent -> half speed
+    set(() => ({ thermal: 1, headroom: 0.95 }));
+    const forecast = await readGovernor();
+    expect(forecast.throttle).toBe(0.5);
+    expect(forecast.reason).toContain('الخنق الحراري');
+
+    // severe status with a reassuring forecast must stay severe (the old code let the
+    // later branch overwrite this back up to 0.5)
+    set(() => ({ thermal: 4, headroom: 0.2 }));
+    const severe = await readGovernor();
+    expect(severe.throttle).toBe(0.2);
   });
 
   it('drives the governor from the platform reading', async () => {

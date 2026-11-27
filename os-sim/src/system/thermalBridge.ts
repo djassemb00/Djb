@@ -92,6 +92,8 @@ export function startThermalBridge(intervalMs = 10_000): () => void {
   timer = window.setInterval(() => void tick(), intervalMs);
 
   setNativeThermalReader(() => {
+    // no reading yet, or too old to trust: say nothing. `readThermal` turns that into
+    // the honest 'unknown' level instead of the 'none' that reads as "cool".
     if (!last || Date.now() - last.at > 30_000) return null;
     return { thermal: last.status >= 0 ? last.status : undefined, headroom: last.headroom };
   });
