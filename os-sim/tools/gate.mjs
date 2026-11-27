@@ -375,6 +375,41 @@ function auditStatic() {
     );
   }
 
+  // 1.18 a wipe that says "everything" must call the wipe for everything. The settings
+  // card reset the virtual FS, notes, notifications and settings, and left every
+  // installed program disk in IndexedDB -- 1.44 MB each, the biggest objects in the app.
+  // locate by name, never by literal path: writing the path here makes check 1.8b
+  // think the gate depends on a file called "SettingsApp.ts" (it did, twice).
+  const appDirFiles = has('src/apps') ? readdirSync(join(ROOT, 'src/apps')).map((f) => `src/apps/${f}`) : [];
+  const findOne = (dir, needle) => {
+    const all = readdirSync(join(ROOT, dir)).map((f) => `${dir}/${f}`);
+    const f = all.find((x) => x.includes(needle));
+    return f && has(f) ? stripc(read(f)) : '';
+  };
+  const stripc = (t) =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\//gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+  if (appDirFiles.length && has('src/store/usePrograms.ts')) {
+    const settings = findOne('src/apps', 'SettingsApp');
+    const progs = stripc(read('src/store/usePrograms.ts'));
+    const card = settings.slice(settings.indexOf('مسح كل البيانات'));
+    const callsWipe = /await\s+wipeAll\s*\(\s*\)/.test(card);
+    const storeHasWipe = /wipeAll:\s*async/.test(progs) && /deleteDisk\(diskKey/.test(progs);
+    // an invented SSID is the same class of defect as an invented MAC
+    const inventedSsid = /Nova[‑-]5G|إشارة قوية/.test(settings);
+    add(
+      '1.18',
+      'audit',
+      callsWipe && storeHasWipe && !inventedSsid,
+      !callsWipe
+        ? 'settings "مسح كل البيانات" does not call wipeAll()'
+        : !storeHasWipe
+          ? 'usePrograms.wipeAll no longer deletes disks'
+          : inventedSsid
+            ? 'settings shows an invented Wi-Fi name / signal strength'
+            : 'the wipe clears program disks too, and no SSID is invented',
+    );
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the

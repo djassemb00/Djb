@@ -4,8 +4,10 @@ import { useOS } from '../store/useOS';
 import { formatDate, formatTime, relativeTime, useNow } from '../system/hooks';
 import { sfx } from '../system/sound';
 import { cx } from '../system/cx';
+import { readNetInfo } from '../system/netInfo';
 
 export function LockScreen() {
+  const net = readNetInfo();
   const unlock = useOS((s) => s.unlock);
   const user = useOS((s) => s.settings.user);
   const showSeconds = useOS((s) => s.settings.showSeconds);
@@ -70,7 +72,9 @@ export function LockScreen() {
               <Wifi size={11} />
               الشبكة
             </div>
-            <b>{quick.wifi ? 'Nova‑5G' : 'غير متصل'}</b>
+            {/* no invented SSID: a web app cannot read the network name, so show the
+                operator-independent truth -- whether the device reports a connection */}
+            <b>{quick.wifi && net.online ? 'متصل' : 'غير متصل'}</b>
           </div>
           <div className="lock-widget">
             <div className="row" style={{ gap: 5 }}>

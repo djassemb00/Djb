@@ -46,6 +46,8 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #16 | 2026-11-27 | ٢٨ فحصاً | نظفت بعد إغلاق A30-A34 | +`tests/catalog.test.ts` (١١) · فحص 1.16 جديد · ٩٩ اختباراً |
 | #17 | 2026-11-27 | ٢٩ فحصاً | نظيفة — فوسّعت الحلقة إلى **كل شاشة تعرض رقماً** | `SettingsApp` · `MonitorApp` · `TerminalApp` |
 | #18 | 2026-11-27 | ٣٠ فحصاً | نظفت بعد إغلاق A35-A39 | +`netInfo.ts` · `vitals.ts` · `tests/ui-honesty.test.ts` (١٢) · فحص 1.17 · ١١١ اختباراً |
+| #19 | 2026-11-27 | ٣١ فحصاً | نظيفة — فوسّعت الحلقة إلى **`useOS` ومخزن البرامج** | «مسح شامل» · مفاتيح الشبكة |
+| #20 | 2026-11-27 | ٣٢ فحصاً | نظفت بعد إغلاق A40-A43 | +`wipeAll()` · `tests/wipe.test.ts` (٩) · فحص 1.18 · ١٢٠ اختباراً |
 
 ## العيوب المُغلقة
 
@@ -91,6 +93,10 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A37 | **الطرفية تطبع ذاكرة الهاتف كأنها ذاكرة الضيف** | `free` → `Mem: 8192M 2416M 5776M` ثابتاً؛ `df` → `8.0G` لنظام ملفات حجمه الحقيقي هو كوتا localStorage | measured: قراءة `useVM` — الذاكرة الحقيقية في `memoryMB` (٣٢ أو ٦٤ للضيف)، والهاتف ليس له علاقة | `free` يقرأ `memoryMB` من وصف الآلة النشطة؛ `df` يعدّ العُقد بدل ادّعاء حجم |
 | A38 | **قائمة العمليات كانت تسمّي `surfaceflinger` عملية تابعة لنا** | `surfaceflinger` خدمة نظام أندرويد، لا خيطاً في تطبيق ويب؛ وعرضها ضمن «عملياتنا» ادّعاء عن الهاتف | measured: `grep -n "surfaceflinger" src/` → `MonitorApp.tsx:5` فقط | القائمة صارت `OUR_THREADS = main · render · emulator · audio` |
 | A39 | **فحص 1.17 الذي كتبته أوقعه فحص 1.8b** | كتبت مساري الملفين نصاً داخل `gate.mjs`، فظنّ 1.8b أن البوابة تعتمد على `src/apps/SettingsApp.ts` (بلا x) — ملف غير موجود | measured: `FAIL 1.8b gate depends on untracked: src/apps/SettingsApp.ts, src/apps/TerminalApp.ts` | البحث بالاسم عبر `pick('SettingsApp')` بدل كتابة المسار |
+| A40 | **«مسح شامل» لا يمسح البرامج المثبَّتة ولا أقراصها** | `resetAll()` يبني نظام ملفات جديداً ويفرّغ الملاحظات والإشعارات والإعدادات — ويترك كل برنامج مثبَّت وكل قرص ١٫٤٤ ميغابايت في IndexedDB. العنوان «مسح كل البيانات» والنص الصغير يستثني البرامج بصمت | measured: `grep -n "resetAll" src/apps/SettingsApp.tsx` → استدعاء واحد بلا أي مساس بـ`usePrograms`؛ و`diskKey`/`deleteDisk` موجودان في `usePrograms` ولا يُستدعيان من المسح | `wipeAll()` في `usePrograms`: يحذف الأقراص أولاً ويُعيد العدد المُزال فعلاً؛ الشاشة تسمّي ما تحذفه وما تُبقيه |
+| A41 | **شبكة مخترعة: «Nova‑5G · إشارة قوية»** | شاشة الإعدادات وشاشة القفل تعرضان اسم شبكة وإشارة لا وجود لهما؛ التطبيق لا يستطيع قراءة SSID أصلاً | measured: `grep -rn "Nova‑5G" src/` → `SettingsApp.tsx:191` و`LockScreen.tsx:73` | الاسم أُزيل؛ النص يقول «التطبيق لا يرى اسم الشبكة»، والنوع من `navigator.onLine` وحده |
+| A42 | **اختبار «استدعاء المسح» مرّ على كود بلا استدعاء** | كتبت `expect(strip).toContain('wipeAll')` — والاسم موجود في سطر التحديد (`const wipeAll = usePrograms(...)`) حتى بعد حذف الاستدعاء | measured: تشويه حذف `await wipeAll()` → **٩/٩ ناجحة** | الاختبار صار على الاستدعاء نفسه: `/await\s+wipeAll\s*\(\s*\)/` + ترتيبه قبل `resetAll()` → التشويه يفشل |
+| A43 | **فحصان جديدان كتبا مسار ملف نصاً، فـ1.8b رآهما اعتماداً على ملف غير موجود** | `SettingsApp.ts` (بلا x) مرة في 1.17، ومرة أخرى في 1.18 — نفس مصيدة A39 تكرّرت لأنني أصلحت الموقع ولم أُصلح الصنف | measured: `FAIL 1.8b gate depends on untracked: src/apps/SettingsApp.ts` مرتين | `findOne(dir, needle)` تبحث بالاسم في كل فحوص الواجهة |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -138,6 +144,10 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | ui | إعادة `Mem: 8192M 2416M` إلى `free` | FAIL ✔ |
 | ui | إعادة `surfaceflinger` إلى قائمة العمليات | FAIL ✔ |
 | gate 1.17 | كتابة مسار ملف نصاً داخل الفحص | FAIL 1.8b ✔ (البوابة تصطاد نفسها) |
+| wipe | إيقاف حذف الأقراص داخل `wipeAll` | FAIL ✔ (٢ اختبارات) |
+| wipe | عدّ فشل الحذف كنجاح | FAIL ✔ |
+| wipe | حذف `await wipeAll()` من زر المسح (مع بقاء الاسم) | **PASSED ✘** → بعد إصلاح الاختبار → FAIL ✔ |
+| wipe | إعادة `Nova‑5G` | FAIL ✔ (اختبار + فحص 1.18) |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 

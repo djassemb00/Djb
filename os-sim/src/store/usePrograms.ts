@@ -46,6 +46,15 @@ interface ProgramsStore {
   bumpLaunch: (id: string) => void;
   markBroken: (id: string) => void;
   setBusy: (id: string | null) => void;
+  /**
+   * Remove every installed program AND its persisted disk.
+   *
+   * `resetAll` in useOS cleared the virtual filesystem, the notes and the settings, then
+   * left every .exe the user had installed sitting in IndexedDB with a full 1.44 MB disk
+   * each. The button said "مسح كل البيانات" and the data survived. A wipe that keeps the
+   * largest objects in the app is not a wipe.
+   */
+  wipeAll: () => Promise<number>;
 }
 
 /**
@@ -144,6 +153,23 @@ export const usePrograms = create<ProgramsStore>()(
 
       markBroken: (id) =>
         set((s) => ({ programs: s.programs.map((x) => (x.id === id ? { ...x, healthy: false } : x)) })),
+
+      wipeAll: async () => {
+        const list = get().programs;
+        // delete the disks FIRST: if a delete throws we must not claim we wiped anything,
+        // and a program row without its disk is a broken icon the user cannot uninstall.
+        let freed = 0;
+        for (const p of list) {
+          try {
+            await deleteDisk(diskKey(p.fileName));
+            freed += 1;
+          } catch {
+            // keep going: one stuck key must not block the reset, but the count stays honest
+          }
+        }
+        set({ programs: [], busy: null });
+        return freed;
+      },
     }),
     {
       name: 'novaos-programs-v1',

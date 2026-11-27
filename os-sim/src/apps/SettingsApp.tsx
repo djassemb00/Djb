@@ -13,6 +13,7 @@ import {
 import { ACCENTS, useOS, WALLPAPERS } from '../store/useOS';
 import { cx } from '../system/cx';
 import { readNetInfo } from '../system/netInfo';
+import { usePrograms } from '../store/usePrograms';
 import { sfx } from '../system/sound';
 
 type Tab = 'appearance' | 'system' | 'network' | 'about-me' | 'reset';
@@ -49,6 +50,9 @@ export function SettingsApp() {
   const shutdown = useOS((s) => s.shutdown);
   // read at render time, not at module load: navigator.onLine changes while the app runs
   const net = readNetInfo();
+  const programs = usePrograms((s) => s.programs);
+  const wipeAll = usePrograms((s) => s.wipeAll);
+  const [wiping, setWiping] = useState(false);
   const lock = useOS((s) => s.lock);
   const notify = useOS((s) => s.notify);
   const [tab, setTab] = useState<Tab>('appearance');
@@ -184,8 +188,26 @@ export function SettingsApp() {
             <div className="field-list">
               <div className="section-title">الاتصال</div>
               {[
-                { key: 'wifi' as const, label: 'Wi‑Fi', detail: 'Nova‑5G · إشارة قوية', icon: Wifi },
-                { key: 'bluetooth' as const, label: 'Bluetooth', detail: 'لا توجد أجهزة متصلة', icon: Server },
+                /*
+                 * These two used to name a network that does not exist ("Nova‑5G ·
+                 * إشارة قوية") and a Bluetooth state we cannot query. A web app can see
+                 * neither the SSID nor the paired-device list; it can only draw a switch.
+                 * So the label stays and the detail tells the truth about its reach.
+                 */
+                {
+                  key: 'wifi' as const,
+                  label: 'Wi‑Fi',
+                  detail: net.online
+                    ? 'مفتاح هذا النظام فقط — التطبيق لا يرى اسم الشبكة'
+                    : 'الهاتف غير متصل — لا شيء يعمل عبر الشبكة',
+                  icon: Wifi,
+                },
+                {
+                  key: 'bluetooth' as const,
+                  label: 'Bluetooth',
+                  detail: 'تزيين سطح المكتب — لا يتحكم براديو الهاتف',
+                  icon: Server,
+                },
                 { key: 'dnd' as const, label: 'عدم الإزعاج', detail: 'كتم الإشعارات الفورية', icon: Volume2 },
                 { key: 'sounds' as const, label: 'أصوات النظام', detail: 'مؤثرات عند التفاعل', icon: Volume2 },
               ].map((row) => {
@@ -293,16 +315,38 @@ export function SettingsApp() {
               </div>
               <div className="card" style={{ marginTop: 10 }}>
                 <b style={{ fontSize: 12.5 }}>مسح كل البيانات</b>
-                <p className="tiny muted" style={{ margin: '4px 0 9px' }}>
-                  يحذف نظام الملفات المحاكى والملاحظات والإشعارات. لا يمكن التراجع.
+                {/*
+                  This card said "مسح كل البيانات" and its own fine print admitted it only
+                  touched the virtual FS, the notes and the notifications -- while the
+                  largest objects in the app, the installed program disks, sat untouched in
+                  IndexedDB. The button now wipes them, and the list below names every
+                  item so the heading cannot over-claim again.
+                */}
+                <p className="tiny muted" style={{ margin: '4px 0 6px' }}>
+                  يحذف: نظام الملفات المحاكى · الملاحظات · الإشعارات · الإعدادات ·{' '}
+                  <b>{programs.length}</b> برنامجاً مثبَّتاً وكل قرص محفوظ لها. لا يمكن التراجع.
+                </p>
+                <p className="tiny muted" style={{ margin: '0 0 9px', lineHeight: 1.6 }}>
+                  يبقى كما هو: ملفات البرامج التي اخترتها من هاتفك (نقرأها ولا نمسحها) ·
+                  وسجل الحاويات في تطبيق «إعداد لعبة» المحفوظ عندك.
                 </p>
                 <button
                   className="btn danger"
-                  onClick={() => {
-                    if (window.confirm('مسح كل بيانات NovaOS؟')) resetAll();
+                  disabled={wiping}
+                  onClick={async () => {
+                    if (!window.confirm('مسح كل بيانات NovaOS، بما فيها البرامج المثبَّتة؟')) return;
+                    setWiping(true);
+                    const freed = await wipeAll();
+                    resetAll();
+                    setWiping(false);
+                    notify({
+                      app: 'settings',
+                      title: 'مُسح كل شيء',
+                      body: `أُزيل ${freed} قرصاً محفوظاً، ونظام الملفات والملاحظات والإعدادات`,
+                    });
                   }}
                 >
-                  <RotateCcw /> مسح شامل
+                  <RotateCcw /> {wiping ? 'جارٍ المسح…' : 'مسح شامل'}
                 </button>
               </div>
               <div className="row" style={{ gap: 7, marginTop: 12 }}>
