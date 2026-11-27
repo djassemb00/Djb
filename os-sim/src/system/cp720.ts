@@ -250,3 +250,80 @@ export function toDisplayOrder(codePoints: number[]): number[] {
 export function shapedDisplayText(codePoints: number[]): string {
   return String.fromCodePoint(...toDisplayOrder(codePoints));
 }
+
+/*
+ * ---- typing a CP-720 word into a DOS guest (PLAN ٥-٥) ------------------------------
+ *
+ * The pipeline works and is measured: `encodeForDos('سلام')` gives the four real bytes
+ * [0xab, 0xe9, 0x9f, 0xea]. What does NOT work is DELIVERING them, and the measurements are
+ * worth keeping because all three obvious routes fail:
+ *
+ *   1. SCANCODES. PS/2 set 1 has no make code for 0xAB. Measured on the shipped FreeDOS:
+ *      scancodes type "abc"; byte 0xab types nothing; `keyboard_send_text` routes through
+ *      v86's US layout and types nothing for Arabic either.
+ *   2. THE BIOS KEYBOARD BUFFER. Injecting at 0040:001E advances head/tail 0x1e -> 0x20 --
+ *      which looks like DOS took the key -- but the screen never changes. And 'A' followed by
+ *      0xAB does not draw a character, it kills the session: COMMAND.COM answers
+ *      "Error reading from device CON: unknown command given to driver".
+ *   3. AN EXTERNAL DOS COMMAND FILE. `keyboard_send_text` cannot express a backslash, so
+ *      `\KEY.COM` cannot be typed at the prompt.
+ *
+ * What DOES work, measured: code planted inside the guest runs. An INT 1Ch stub printed 23
+ * times in 1.2 s with no crash. A resident input program would be built on that -- and even
+ * then the guest would paint CP437 box glyphs, because the boot image carries no Arabic font
+ * and no codepage driver. Both gaps are stated in the UI; neither is papered over.
+ */
+
+/** the CP-720 byte for one character, or null when the codepage cannot hold it */
+export function arabicByteFor(ch: string): number | null {
+  const cp = ch.codePointAt(0) as number;
+  if (cp < 0x80) return cp;
+  return toCp720(cp);
+}
+
+/**
+ * Encode a word as the bytes a DOS program would receive, naming what it cannot hold.
+ *
+ * A rejected character is named, never replaced with '?' -- a word that half arrived is worse
+ * than one that was refused. This function is the half of ٥-٥ that is proven; the delivery
+ * half is not built (see above).
+ */
+export function encodeForDos(text: string): { bytes: number[]; rejected: string[] } {
+  const bytes: number[] = [];
+  const rejected: string[] = [];
+  for (const ch of text) {
+    const b = arabicByteFor(ch);
+    if (b === null) rejected.push(ch);
+    else bytes.push(b);
+  }
+  return { bytes, rejected };
+}
+
+export interface ArabicInputStatus {
+  /** does a typed word reach a DOS program? */
+  canType: boolean;
+  /** will the guest draw it as Arabic? */
+  canShow: boolean;
+  why: string;
+}
+
+/**
+ * What the UI is allowed to claim about Arabic in the guest.
+ *
+ * Both limits are separate and both are real: delivery needs a resident program that does not
+ * exist, and display needs a font and codepage the boot image does not carry. A keyboard that
+ * promised «سلام» and painted «««« -- or killed the shell -- would be the defect this returns
+ * false to prevent.
+ */
+export function arabicInputStatus(): ArabicInputStatus {
+  return {
+    canType: false,
+    canShow: false,
+    why:
+      'إدخال العربية إلى الضيف غير مُفعَّل. بايتات الترميز تُحسب بدقة، لكن إيصالها إلى DOS ' +
+      'يحتاج برنامجاً مقيماً داخل الضيف لم يُكتب بعد؛ والحقن المباشر في مخزن لوحة المفاتيح ' +
+      'يُسقط الجلسة («Error reading from device CON»). والعرض كذلك لا يعمل: النواة ترسم ' +
+      'CP437 حيث بايت الحرف العربي رمز رسم، ولا خط عربي ولا سائق ترميز على قرص الإقلاع. ' +
+      'وحتى لو عمل الإيصال، الألعاب التي تقرأ العتاد مباشرة لا ترى ما نُدخله أصلاً.',
+  };
+}

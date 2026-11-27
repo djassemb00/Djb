@@ -30,8 +30,16 @@ function bootUntil(disk: Uint8Array, want: string, timeoutMs = 20_000): Promise<
       memory_size: 32 * 1024 * 1024,
       autostart: true,
     });
+    /*
+     * v86 builds its machine a few hundred milliseconds after the constructor returns, so
+     * `emu.v86.cpu` can be undefined on the first ticks. Reading through it unconditionally
+     * throws INSIDE a setInterval, where nothing catches it: vitest reports an unhandled
+     * "memory access out of bounds" while the test still passes, which is how a broken test
+     * looks healthy. Measured: the machine is there by ~100 ms.
+     */
     const text = () => {
-      const m = emu.v86.cpu.devices.vga.vga_memory;
+      const m = emu.v86?.cpu?.devices?.vga?.vga_memory;
+      if (!m) return '';
       let s = '';
       for (let i = 0; i < 80 * 25; i++) s += String.fromCharCode(m[i * 2]);
       return s;

@@ -28,6 +28,7 @@ import { cx } from '../system/cx';
 import { detectDevice } from '../system/deviceProfile';
 import { readGovernor, thermalLabel, type GovernorReading } from '../system/thermal';
 import { GamePad, useGamepad } from './GamePad';
+import { arabicInputStatus } from '../system/cp720';
 import { startThermalBridge } from '../system/thermalBridge';
 
 /** size of the NovaFS IDE disk handed to the guest (NovaDesk only) */
@@ -645,6 +646,20 @@ export function MachineView() {
               إرسال ⏎
             </button>
           </form>
+          {/*
+            ٥-٥: the Arabic input status, stated where the user types.
+            This is deliberately NOT a working Arabic keyboard. Measured: injecting a high byte
+            into the guest's keyboard buffer makes COMMAND.COM answer "Error reading from
+            device CON" and end the session, and the shipped kernel would draw the byte as a
+            CP437 box glyph even if it arrived. Saying so is the honest version of this step;
+            a keyboard that silently breaks DOS is not.
+          */}
+          <details className="emu-sendbar-note">
+            <summary className="tiny muted">العربية في الضيف: ما يعمل وما لا يعمل</summary>
+            <p className="tiny muted" style={{ padding: '0 10px 6px', margin: 0 }}>
+              {arabicInputStatus().why}
+            </p>
+          </details>
         </div>
 
         <aside className="machine-side">
