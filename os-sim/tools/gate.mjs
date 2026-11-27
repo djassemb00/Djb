@@ -535,6 +535,46 @@ function auditStatic() {
     );
   }
 
+  // 1.22 the Winlator container export must contain only keys the real Container.java
+  // reads, and only values it defines. The old export wrote 19 keys of which 7 were
+  // silently ignored, used "COMPATIBILITY" for box64Preset (not a real constant), and
+  // replaced Winlator's default envVars string instead of merging it.
+  {
+    const wpPath = 'src/system/winePrefix.ts';
+    const keysPath = 'tests/fixtures/winlator-keys.json';
+    if (has(wpPath) && has(keysPath)) {
+      const wp = read(wpPath).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\//gm, '');
+      const facts = JSON.parse(read(keysPath));
+      const readKeys = new Set(facts.readKeys);
+      // every object key written in toContainerJson must be a readable key
+      const body = wp.slice(wp.indexOf('export function toContainerJson'));
+      const written = [...body.slice(0, body.indexOf('JSON.stringify')).matchAll(/^\s{4}([a-zA-Z_][\w]*):/gm)].map(
+        (m) => m[1],
+      );
+      const unknown = written.filter((k) => !readKeys.has(k));
+      const presets = facts.box64Presets;
+      // only the two values this file can emit, read from the ternary that decides them
+      const presetExpr = (wp.match(/box64Preset:\s*[^\n]*/) ?? [''])[0];
+      const badPreset = [...presetExpr.matchAll(/'([A-Z]+)'/g)].map((m) => m[1]).filter((v) => !presets.includes(v));
+      const mergesDefaults = /mergeEnv\(\s*DEFAULT_ENV_VARS/.test(wp);
+      const arabicName = /\\p\{L\}/.test(wp);
+      add(
+        '1.22',
+        'audit',
+        unknown.length === 0 && badPreset.length === 0 && mergesDefaults && arabicName,
+        unknown.length
+          ? `container export writes keys Winlator ignores: ${unknown.join(', ')}`
+          : badPreset.length
+            ? `box64Preset value not defined by Box64Preset: ${badPreset.join(', ')}`
+            : !mergesDefaults
+              ? 'envVars no longer merges Winlator defaults (WINEESYNC and the shader cache are dropped)'
+              : !arabicName
+                ? 'container file names collapse non-ASCII titles to "prefix"'
+                : `export writes ${written.length} keys, all of them read by Container.loadData`,
+      );
+    }
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the

@@ -1,0 +1,14 @@
+{
+  "$comment": "The keys Container.loadData actually switches over, transcribed from brunodev85/winlator-app app/src/main/java/com/winlator/container/Container.java (the parent repo brunodev85/winlator carries `app` as a submodule, which is why earlier notes said 49 keys). Values below are from the same file.",
+  "source": "https://github.com/brunodev85/winlator-app/blob/main/app/src/main/java/com/winlator/container/Container.java",
+  "readKeys": [
+    "audioDriver", "audioDriverConfig", "box64Preset", "cpuList", "cpuListWoW64",
+    "desktopTheme", "drives", "dxwrapper", "dxwrapperConfig", "envVars", "extraData",
+    "graphicsDriver", "graphicsDriverConfig", "hudMode", "name", "screenSize",
+    "showFPS", "startupSelection", "wincomponents", "wineVersion"
+  ],
+  "defaultEnvVars": "ZINK_DESCRIPTORS=lazy ZINK_DEBUG=compact MESA_SHADER_CACHE_DISABLE=false MESA_SHADER_CACHE_MAX_SIZE=512MB mesa_glthread=true WINEESYNC=1 TU_DEBUG=noconform",
+  "defaultScreenSize": "1280x720",
+  "box64Presets": ["STABILITY", "CONSERVATIVE", "INTERMEDIATE", "PERFORMANCE", "CUSTOM"],
+  "hudMode": { "DISABLED": 0, "SIMPLE": 1, "DETAILED": 2 }
+}

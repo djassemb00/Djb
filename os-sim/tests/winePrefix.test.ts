@@ -3,23 +3,17 @@ import { readFileSync, existsSync } from 'node:fs';
 import { containerFileName, generateProfile, toContainerJson } from '../src/system/winePrefix';
 
 /**
- * Winlator parses a container with a fixed switch over 49 keys (Container.loadData).
- * The key list below is transcribed from that switch; it lives here as a fixture so
- * the suite keeps working without the Java source next to it.
+ * The keys below come from tests/fixtures/winlator-keys.json, which is transcribed from
+ * brunodev85/winlator-app `Container.java`. This test used to carry its OWN list of 49
+ * keys -- a list that had never been checked against any source, naming keys
+ * (`emulator`, `box64Version`, `rendererNativeBackend`, …) that Container.loadData does
+ * not switch over. A test whose expectations are invented agrees with invented code.
  */
-const ACCEPTED = new Set([
-  'name', 'screenSize', 'envVars', 'cpuList', 'cpuListWoW64', 'graphicsDriver',
-  'graphicsDriverConfig', 'emulator', 'wincomponents', 'dxwrapper', 'dxwrapperConfig',
-  'drives', 'showFPS', 'fpsCounterConfig', 'fullscreenMode', 'screenAlignment',
-  'fullscreenStretched', 'inputType', 'startupSelection', 'startupServices', 'extraData',
-  'wineVersion', 'box64Version', 'emulator64', 'box64ecVersion', 'forceSsbs',
-  'syncCpuTopology', 'fexcoreVersion', 'fexcorePreset', 'box64Preset',
-  'fexcorePresetVars', 'box64PresetVars', 'audioDriver', 'desktopTheme', 'midiSoundFont',
-  'lc_all', 'primaryController', 'controllerMapping', 'exclusiveXInput', 'bannerinXInput',
-  'bannerinXInputSwitching', 'renderer', 'rendererNative', 'rendererNativeBackend',
-  'rendererPresentMode', 'rendererDriverId', 'rendererFilterMode', 'rendererSwapRB',
-  'rendererSfCompatMode',
-]);
+const FACTS = JSON.parse(readFileSync('tests/fixtures/winlator-keys.json', 'utf8')) as {
+  readKeys: string[];
+  box64Presets: string[];
+};
+const ACCEPTED = new Set(FACTS.readKeys);
 
 describe('Winlator container export', () => {
   it('emits only keys Winlator actually reads', () => {
@@ -30,10 +24,16 @@ describe('Winlator container export', () => {
     }
   });
 
-  it('uses slot ids and the comma form Winlator writes itself', () => {
+  it('uses the comma form Winlator writes itself', () => {
     const obj = JSON.parse(toContainerJson(generateProfile({ title: 'GTA V' })));
-    expect(obj.graphicsDriver).toBe('wrapper'); // slot id, not a label
-    expect(obj.dxwrapper).toBe('dxvk+vkd3d');
+    /*
+     * "graphicsDriver: wrapper" and "dxwrapper: dxvk+vkd3d" were both inventions:
+     * graphicsDriver names a Vulkan AND an OpenGL driver ("turnip,wrapper" style) and
+     * dxwrapper is one of DXWrappers' identifiers, not a plus-joined pair. We now leave
+     * both at Winlator's own defaults instead of guessing, so the keys are absent.
+     */
+    expect(obj.graphicsDriver).toBeUndefined();
+    expect(obj.dxwrapper).toBe('dxvk');
     expect(obj.dxwrapperConfig.startsWith('version=')).toBe(true);
     expect(obj.screenSize).toBe('1280x720');
   });
@@ -43,9 +43,13 @@ describe('Winlator container export', () => {
     expect(JSON.parse(toContainerJson(generateProfile({ title: 'y' }))).dxwrapperConfig).toContain('version=2.4');
   });
 
-  it('sets the Box64 preset from bitness', () => {
-    expect(JSON.parse(toContainerJson(generateProfile({ title: 'a' }))).box64Preset).toBe('PERFORMANCE');
-    expect(JSON.parse(toContainerJson(generateProfile({ title: 'b', is32: true }))).box64Preset).toBe('COMPATIBILITY');
+  it('sets the Box64 preset from bitness, using a real constant', () => {
+    const x64 = JSON.parse(toContainerJson(generateProfile({ title: 'a' }))).box64Preset;
+    const x86 = JSON.parse(toContainerJson(generateProfile({ title: 'b', is32: true }))).box64Preset;
+    expect(x64).toBe('PERFORMANCE');
+    expect(x86).toBe('STABILITY');
+    // whatever we emit must exist in Box64Preset -- "COMPATIBILITY" did not
+    for (const v of [x64, x86]) expect(FACTS.box64Presets).toContain(v);
   });
 
   it('names the file per title and produces valid JSON', () => {

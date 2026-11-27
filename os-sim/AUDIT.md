@@ -54,6 +54,8 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #24 | 2026-11-27 | ٣٦ فحصاً | نظفت بعد إغلاق A47-A49 | +`vmCore.ts` · `tests/vm-core.test.ts` (١٢) · فحص 1.20 · ١٤٦ اختباراً |
 | #25 | 2026-11-27 | ٣٧ فحصاً | نظيفة — فوسّعت الحلقة إلى **قارئ `fat12`** (لم يُقرأ قرص قط) | BPB المتبرّع · تصادم الأسماء |
 | #26 | 2026-11-27 | ٣٨ فحصاً | نظفت بعد إغلاق A50-A54 | +`tests/fat12-reader.test.ts` (١٦) · فحص 1.21 · ١٦٢ اختباراً |
+| #27 | 2026-11-27 | ٣٩ فحصاً | نظيفة — فوسّعت الحلقة إلى **`winePrefix.ts`**: الملف الوحيد الذي يُسلَّم لبرنامج آخر | مخطط الحاوية · القيم |
+| #28 | 2026-11-27 | ٤٠ فحصاً | نظفت بعد إغلاق A55-A60 | +`winlator-keys.json` · `tests/wine-prefix.test.ts` (١٦) · فحص 1.22 · ١٧٨ اختباراً |
 
 ## العيوب المُغلقة
 
@@ -114,6 +116,12 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A52 | **`guest.ts` يعيد تعريف تخطيط القرص بدل استيراده** | `const CLUSTER = 1024` و`const DATA_START = 16896` محليّان — نفس عيب الدورة ٢٥ (اختبار/كود يعيد أرقامه) لكن في كود التشغيل | measured: `grep -n DATA_START src/system/guest.ts` → `:17 const DATA_START = 16896` بينما `fat12.ts` يعرّفه ولا يُصدّره | صُدِّر `DATA_START` و`CLUSTER`، و`guest.ts` يستوردهما |
 | A53 | **اختبار قديم يُثبّت العيب** | `fat12.test.ts:49` كان يؤكد `disk.subarray(0,512) == boot.subarray(0,512)` — أي أن نسخ BPB المتبرّع **سلوك مطلوب**. الاختبار كان يحرس الخطأ | measured: بعد إصلاح A50 سقط هذا الاختبار: `expected [...] to deeply equal [...]` | الاختبار صار يفرّق: الكود يُنسخ، والـBPB لنا |
 | A54 | **حارس جديد لم يُثبت منفرداً** | حذف حارس «الاسم محجوز» لم يُسقط شيئاً — لأن حارس التكرار يلتقط الحالة نفسها ويطرح رسالة مختلفة | measured: تشويه حذف `محجوز` → **١٥/١٥ ناجحة** | الاختبار يؤكد الرسالة (`/محجوز/`)، وأُضيف اختبار تصادم لا يمسّ الاسم المحجوز (`KERNEL.SYS`) → التشويهان يفشلان منفردين |
+| A55 | **تصدير Winlator كتب ٧ مفاتيح يتجاهلها + مفتاحاً بقيمة غير موجودة** | `Container.loadData` يقرأ **٢٠** مفتاحاً فقط، وتصديرنا كتب ١٩ منها **٧ مُهمَلة** (`emulator` · `emulator64` · `inputType` · `exclusiveXInput` · `fullscreenMode` · `lc_all`)، و`graphicsDriver: 'wrapper'` قيمة مخترعة — والمفتاح الحقيقي اسم برنامجي Vulkan وOpenGL مفصولين بفاصلة | measured: `Container.java` من `brunodev85/winlator-app` (الـsubmodule؛ العدد «٤٩» في تعليقاتنا كان من نسخة متفرّعة لم نفتح مصدرها) → `grep -c 'case "' = 20`؛ مقابل تصديرنا → `12 read / 7 ignored` | كل مفتاح مكتوب الآن من العشرين، والقائمة محفوظة في `tests/fixtures/winlator-keys.json` |
+| A56 | **«WOW64 مطلوب» مكتوبة للمستخدم، ولا مفتاح يحملها** | نص `rationale` يقول للمستخدم إن الملف ٣٢-بت يحتاج WOW64 — والملف المُصدَّر لا يحوي أي مفتاح WOW64. الادّعاء والإعداد لا يلتقيان | measured: `keys containing "wow": []` على ملف ٣٢-بت، مع وجود الجملة في `rationale` | الجملة تصف الضابط الحقيقي الذي يُكتب (`Box64 STABILITY`)؛ و`emulator64/FEXCore` أُزيلا لأن مفتاحهما مُهمَل |
+| A57 | **`box64Preset: 'COMPATIBILITY'` قيمة غير معرّفة** | `Box64Preset` يعرّف: STABILITY · CONSERVATIVE · INTERMEDIATE · PERFORMANCE · CUSTOM. القيمة المخترعة تُسقط الضبط إلى الافتراضي صامتاً | measured: `Box64Preset.java` عبر `gh api` | ٣٢-بت → `STABILITY`، ٦٤-بت → `PERFORMANCE` |
+| A58 | **`envVars` يستبدل قيم Winlator الافتراضية بدل دمجها** | أي حاوية تُرسل `envVars` **تستبدل** `DEFAULT_ENV_VARS` كاملاً — فستّ قيم لنا أسقطت `WINEESYNC=1` و`MESA_SHADER_CACHE_MAX_SIZE=512MB`، أي جزءاً كبيراً من الأداء الذي كان يجب أن تحمله الحاوية | measured: `Container.DEFAULT_ENV_VARS` من المصدر مقابل تصديرنا (لا يحوي واحداً منهما) | `mergeEnv()`: الافتراضي أولاً وتحسيناتنا تغلبه |
+| A59 | **عنوان عربي → اسم ملف `prefix` — كل الألعاب العربية تتصادم** | `\w` في JS لاتيني، فـ«لعبة» تصير فارغة → `prefix.container.json`، وWinlator يحفظ مجلداً لكل حاوية | measured: `لعبة → prefix.container.json`، وأربعة عناوين → ثلاثة أسماء متطابقة | `\p{L}\p{N}` مع `u`، واحتياطي تجزئة على **العنوان الخام** (لا المقصوص) — `''` و`'   '` كانا يتصادمان أيضاً |
+| A60 | **اختبار Winlator يعرّف مفاتيحه بنفسه: قائمة ٤٩ مخترعة** | الاختبار كان يطابق تصديرنا ضد قائمة لم تُقابَل بأي مصدر، فتجعله يوافق نفسه ويُبقي `emulator`/`fullscreenMode` «مقبولين» | measured: `tests/winePrefix.test.ts:10 const ACCEPTED = new Set([...49...])` مقابل `case "` الحقيقية = ٢٠ | القائمة تُقرأ من المرجع الواقعي؛ ثلاثة اختبارات قديمة صُحّحت (slot id · preset · نسخ المفاتيح) |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -180,6 +188,12 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | fat12 | حذف علامة نهاية السلسلة | FAIL ✔ |
 | fat12 | عدم كتابة نسخة FAT الثانية | FAIL ✔ |
 | gate 1.21 | إعادة `const DATA_START = 16896` في `guest.ts` | FAIL ✔ |
+| wine | إعادة `COMPATIBILITY` | FAIL ✔ (٢) |
+| wine | إلغاء دمج `DEFAULT_ENV_VARS` | FAIL ✔ |
+| wine | إعادة مفتاح `emulator` | FAIL ✔ (٢ + فحص 1.22) |
+| wine | إعادة `\w` للعنوان العربي | FAIL ✔ |
+| wine | إعادة جملة WOW64 | FAIL ✔ |
+| gate 1.22 | قيمة preset غير معرّفة | FAIL ✔ |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 
