@@ -13,11 +13,21 @@ static const unsigned short letter_cp[] = {
   0x0641, 0x0642, 0x0643, 0x0644, 0x0645, 0x0646, 0x0647, 0x0648, 0x0649,
   0x064A,
 };
+/*
+ * 1 = the letter joins to the letter that FOLLOWS it (initial/medial forms exist).
+ *
+ * This row was inverted for 33 of its 37 entries, which is why every Arabic word the kernel
+ * drew came out with the wrong shapes: beh was marked as not joining forward, so "سلام"
+ * rendered with an isolated seen and a final-only skeleton, and alef was marked as joining,
+ * so a word never ended. Corrected against the Arabic joining model (alef, dal, thal, reh,
+ * zain, waw and hamza join only to the preceding letter; every other letter joins both ways).
+ * `tests/cp720.test.ts` asserts these 37 values so a hand edit cannot silently invert them
+ * again.
+ */
 static const unsigned char letter_join[] = {
-  0, 1, 1, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0,
-};
-static const unsigned char letter_forms[] = {
+  0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1,
+};static const unsigned char letter_forms[] = {
   1, 2, 2, 2, 2, 4, 2, 4, 2, 4, 4, 4, 4, 4, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4,
   4, 4, 1, 4, 4, 4, 4, 4, 4, 4, 2, 2, 4,
 };
@@ -70,44 +80,68 @@ unsigned int utf8_next(const char *s, int *i) {
    table is what lets a CP-720 text file be displayed, and what a CP-720 aware
    program would expect on the wire. */
 unsigned char cp720_byte(unsigned int cp) {
+  /*
+   * CP-720 is where a DOS Arabic word processor actually puts Arabic: 0x98-0xAF for the
+   * first letters, 0xE0-0xEF for the rest, 0x91/0x92 for shadda and sukun, 0xF1-0xF6 for the
+   * harakat.
+   *
+   * The table this replaces was WRONG by a wide margin: it put hamza at 0xC1 and yeh at
+   * 0xEA. In the real codepage those bytes are box-drawing characters. A file we encoded
+   * with it would have opened in any DOS Arabic editor as a grid of lines and corners -- and
+   * the boot self-check printed those numbers all along, which is what a self-check that
+   * only prints is worth.
+   *
+   * Generated from the Unicode/SEIKO EPSON "cp720 to Unicode" table (table version 1.00,
+   * 2009-10-30, the one shipped in the Unicode mapping archive) rather than typed by hand:
+   * 45 entries, and the generated values are asserted against that table in
+   * `tests/cp720.test.ts`.
+   */
   switch (cp) {
-    case 0x0621: return 0xC1;
-    case 0x0622: return 0xC2;
-    case 0x0623: return 0xC3;
-    case 0x0624: return 0xC4;
-    case 0x0625: return 0xC5;
-    case 0x0626: return 0xC6;
-    case 0x0627: return 0xC7;
-    case 0x0628: return 0xC8;
-    case 0x0629: return 0xC9;
-    case 0x062A: return 0xCA;
-    case 0x062B: return 0xCB;
-    case 0x062C: return 0xCC;
-    case 0x062D: return 0xCD;
-    case 0x062E: return 0xCE;
-    case 0x062F: return 0xCF;
-    case 0x0630: return 0xD0;
-    case 0x0631: return 0xD1;
-    case 0x0632: return 0xD2;
-    case 0x0633: return 0xD3;
-    case 0x0634: return 0xD4;
-    case 0x0635: return 0xD5;
-    case 0x0636: return 0xD6;
-    case 0x0637: return 0xD7;
-    case 0x0638: return 0xD8;
-    case 0x0639: return 0xD9;
-    case 0x063A: return 0xDA;
-    case 0x0640: return 0xE0;
-    case 0x0641: return 0xE1;
-    case 0x0642: return 0xE2;
-    case 0x0643: return 0xE3;
-    case 0x0644: return 0xE4;
-    case 0x0645: return 0xE5;
-    case 0x0646: return 0xE6;
-    case 0x0647: return 0xE7;
-    case 0x0648: return 0xE8;
-    case 0x0649: return 0xE9;
-    case 0x064A: return 0xEA;
+    case 0x0651: return 0x91;
+    case 0x0652: return 0x92;
+    case 0x0640: return 0x95;
+    case 0x0621: return 0x98;
+    case 0x0622: return 0x99;
+    case 0x0623: return 0x9A;
+    case 0x0624: return 0x9B;
+    case 0x0625: return 0x9D;
+    case 0x0626: return 0x9E;
+    case 0x0627: return 0x9F;
+    case 0x0628: return 0xA0;
+    case 0x0629: return 0xA1;
+    case 0x062A: return 0xA2;
+    case 0x062B: return 0xA3;
+    case 0x062C: return 0xA4;
+    case 0x062D: return 0xA5;
+    case 0x062E: return 0xA6;
+    case 0x062F: return 0xA7;
+    case 0x0630: return 0xA8;
+    case 0x0631: return 0xA9;
+    case 0x0632: return 0xAA;
+    case 0x0633: return 0xAB;
+    case 0x0634: return 0xAC;
+    case 0x0635: return 0xAD;
+    case 0x0636: return 0xE0;
+    case 0x0637: return 0xE1;
+    case 0x0638: return 0xE2;
+    case 0x0639: return 0xE3;
+    case 0x063A: return 0xE4;
+    case 0x0641: return 0xE5;
+    case 0x0642: return 0xE7;
+    case 0x0643: return 0xE8;
+    case 0x0644: return 0xE9;
+    case 0x0645: return 0xEA;
+    case 0x0646: return 0xEB;
+    case 0x0647: return 0xEC;
+    case 0x0648: return 0xED;
+    case 0x0649: return 0xEE;
+    case 0x064A: return 0xEF;
+    case 0x064B: return 0xF1;
+    case 0x064C: return 0xF2;
+    case 0x064D: return 0xF3;
+    case 0x064E: return 0xF4;
+    case 0x064F: return 0xF5;
+    case 0x0650: return 0xF6;
     default: return 0;
   }
 }

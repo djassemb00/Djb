@@ -16,6 +16,33 @@ import {
 } from 'lucide-react';
 import { nodeAt, useOS, type FSNode } from '../store/useOS';
 import { cx } from '../system/cx';
+import { readCp720, shapedDisplayText, toCp720 } from '../system/cp720';
+
+/**
+ * The text a CP-720 reader would show for a file the app holds as a JS string.
+ *
+ * Pulled out of the component so it can be tested without a DOM: the shaping and direction
+ * are the whole feature and they must not depend on React being rendered.
+ *
+ * A letter the codepage cannot hold is NOT a crash and NOT a guess. CP-720 has no byte for
+ * Farsi peh or Urdu teh, so the honest answer is to name the character and say the file is
+ * not CP-720 -- not to draw it and let the user believe the file is fine.
+ */
+export function cp720ViewOf(content: string): string {
+  const bytes: number[] = [];
+  for (const ch of content) {
+    const cp = ch.codePointAt(0) as number;
+    // ASCII and Latin-1 are their own byte; Arabic has to go through the table
+    const b = cp < 0x80 ? cp : toCp720(cp);
+    if (b === null) {
+      // pad to four hex digits: U+067E, not U+67E -- a code point shown wrong is a wrong claim
+      const hex = cp.toString(16).toUpperCase().padStart(4, '0');
+      return `هذا النص ليس بترميز CP-720: الحرف «${ch}» (U+${hex}) لا يوجد له بايت في هذا الترميز.`;
+    }
+    bytes.push(b);
+  }
+  return shapedDisplayText(readCp720(new Uint8Array(bytes)).codePoints);
+}
 import { sfx } from '../system/sound';
 
 const PLACES = [
@@ -63,7 +90,29 @@ export function FilesApp() {
       setSel(node.name);
       setOpenFile({ path: [...cwd, node.name], node });
       setDraft(node.content);
+      // ٥-٤: a CP-720 view belongs to the file it was opened for. Leaving it up would show
+      // the previous file's text above the new file's name.
+      setCp720View(null);
     }
+  };
+
+  /**
+   * ٥-٤: show the file the way the encoding it is IN says it should look.
+   *
+   * A legacy Arabic text file is bytes, not UTF-8: one byte per letter, no joining, no
+   * direction. Displaying it as UTF-8 would show mojibake, and displaying it as UTF-8
+   * *correctly* would still be wrong -- the shapes are the reader's job, not the codepage's.
+   * So the bytes are decoded as CP-720, shaped, and reordered before they reach the textarea.
+   *
+   * The result is shown in a read-only pane rather than the editor: the editor saves UTF-8, so
+   * letting the user type into a shaped, reversed rendering would write back something that is
+   * neither the original file nor a correct CP-720 one. A viewer that says what it is beats an
+   * editor that silently corrupts.
+   */
+  const [cp720View, setCp720View] = useState<{ name: string; text: string } | null>(null);
+  const showAsCp720 = (node: Extract<FSNode, { type: 'file' }>) => {
+    setCp720View({ name: node.name, text: cp720ViewOf(node.content) });
+    sfx.tap();
   };
 
   const save = () => {
@@ -221,9 +270,19 @@ export function FilesApp() {
                   {openFile.node.kind === 'image' ? (
                     <span className="chip">معاينة</span>
                   ) : (
-                    <button className="btn primary" onClick={save}>
-                      <Save /> حفظ
-                    </button>
+                    <>
+                      {/* ٥-٤: a legacy Arabic file needs a reader, not an editor */}
+                      <button
+                        className="btn ghost"
+                        title="اعرضه كملف CP-720 (عربي DOS): مشكولاً ومن اليمين"
+                        onClick={() => showAsCp720(openFile.node as Extract<FSNode, { type: 'file' }>)}
+                      >
+                        <FileText /> عربي DOS
+                      </button>
+                      <button className="btn primary" onClick={save}>
+                        <Save /> حفظ
+                      </button>
+                    </>
                   )}
                   <button className="btn ghost" onClick={() => setOpenFile(null)}>
                     <ArrowRight />
@@ -231,6 +290,28 @@ export function FilesApp() {
                 </div>
                 {openFile.node.kind === 'image' ? (
                   <ImagePreview name={openFile.node.name} />
+                ) : cp720View ? (
+                  /*
+                   * Read-only on purpose. The editor writes UTF-8; typing into a shaped,
+                   * reversed rendering and saving would produce a file that is neither the
+                   * original CP-720 nor correct UTF-8. So this pane shows the text as CP-720
+                   * would look and the editor stays behind «رجوع».
+                   */
+                  <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+                    <div className="tiny muted" style={{ padding: '4px 10px' }}>
+                      {cp720View.name} — يُعرض بترميز CP-720 (عربي DOS)، للقراءة فقط
+                    </div>
+                    <pre
+                      className="editor"
+                      dir="rtl"
+                      style={{ margin: 0, flex: 1, overflow: 'auto', whiteSpace: 'pre-wrap' }}
+                    >
+                      {cp720View.text}
+                    </pre>
+                    <button className="btn ghost" style={{ margin: 6 }} onClick={() => setCp720View(null)}>
+                      <ArrowRight /> رجوع إلى المحرّر
+                    </button>
+                  </div>
                 ) : (
                   <textarea
                     className={cx('editor', /^[\u0600-\u06FF]/.test(draft) ? '' : 'ltr')}
