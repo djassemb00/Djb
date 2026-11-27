@@ -28,6 +28,17 @@ const NOVA_DATA_BYTES = 4 * 1024 * 1024;
 /** IndexedDB key holding the guest's file system between sessions */
 const DATA_DISK_KEY = 'novadesk-novafs';
 
+/**
+ * Guests that can be resumed straight to their desktop.
+ *
+ * A v86 state snapshot is self-contained: it restores into a machine with no
+ * disks attached at all (measured: KolibriOS 56 ms, Windows 1.01 63 ms). So the
+ * first launch of these guests boots and snapshots; every later launch restores,
+ * which is what keeps them inside Android 17's per-app memory budget.
+ */
+const RESUMABLE = new Set(['kolibri', 'win101']);
+const SNAPSHOT_DB_KEY = (id: string) => `snapshot:${id}`;
+
 export function MachineView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -80,6 +91,9 @@ export function MachineView() {
 
 
   /* ---------------- boot the machine ---------------- */
+  /** snapshots already written in this session, so we save one per guest */
+  const snapshotSaved = useRef<Set<string>>(new Set());
+
   const boot = useCallback(async () => {
     // v86 injects a text-mode <div> and a <canvas> into this element.
     const host = containerRef.current;
@@ -95,6 +109,34 @@ export function MachineView() {
     try {
       const image = await loadImage(active.path, setLoadPct);
       const isNovaDesk = active.id === 'novadesk';
+
+      // Fast path: resume a guest from its snapshot instead of cold-booting it.
+      // The snapshot carries the whole machine (RAM, devices, disk contents), so
+      // no image is needed and no boot time is spent.
+      if (RESUMABLE.has(active.id)) {
+        const saved = await loadDisk(SNAPSHOT_DB_KEY(active.id));
+        if (saved && saved.byteLength > 0) {
+          setPhase('booting');
+          const vm = createVM({
+            container: host,
+            image: new Uint8Array(0),
+            slot: active.slot,
+            memoryMB: active.memoryMB,
+            skipDisk: true,
+            autostart: false,
+            onSerial: pushSerial,
+            onState: setVmState,
+          });
+          vmRef.current = vm;
+          await vm.restoreState(saved.buffer as ArrayBuffer);
+          vm.setScale(scale);
+          frameRef.current?.focus();
+          setPhase('ready');
+          setBooted(true);
+          toast(`استُؤنف ${active.name} خلال أجزاء من الثانية`);
+          return;
+        }
+      }
       // restore the guest's file system before the machine starts, so the
       // first ATA read already sees the user's files
       const savedDisk = isNovaDesk ? await loadDisk(DATA_DISK_KEY) : null;
@@ -117,6 +159,15 @@ export function MachineView() {
       const started = Date.now();
       const poll = window.setInterval(() => {
         const alive = vm.isAlive();
+        // cold boots worth resuming: snapshot once the desktop is really on screen
+        if (alive && RESUMABLE.has(active.id) && !snapshotSaved.current.has(active.id)) {
+          snapshotSaved.current.add(active.id);
+          window.setTimeout(() => {
+            const state = vmRef.current === vm ? vm.saveState() : null;
+            if (!state) return;
+            void state.then((buf) => saveDisk(SNAPSHOT_DB_KEY(active.id), new Uint8Array(buf)));
+          }, 1500);
+        }
         if (alive || Date.now() - started > 15000) {
           window.clearInterval(poll);
           setPhase('ready');

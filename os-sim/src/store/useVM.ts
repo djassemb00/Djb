@@ -41,6 +41,16 @@ export const BUILTIN_IMAGES: MachineImage[] = [
     size: 1474560,
   },
   {
+    id: 'win101',
+    name: 'Windows 1.01',
+    path: './images/windows101.img',
+    slot: 'fda',
+    memoryMB: 32,
+    note: 'أول إصدار من ويندوز (1985) — بعد أول إقلاع يُحفظ كصورة حالة ويُستأنف فورًا',
+    builtin: true,
+    size: 1474560,
+  },
+  {
     id: 'freedos',
     name: 'FreeDOS 1.x (boot)',
     path: './images/freedos-boot.img',

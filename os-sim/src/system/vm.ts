@@ -21,6 +21,10 @@ export interface VMOptions {
   /** initial contents for the data disk (a disk restored from storage) */
   dataDisk?: Uint8Array;
   memoryMB?: number;
+  /** do not attach any disk: used when a self-contained snapshot supplies the machine */
+  skipDisk?: boolean;
+  /** start the CPU immediately (default true) */
+  autostart?: boolean;
   onSerial?: (text: string) => void;
   onState?: (state: VMState) => void;
 }
@@ -82,11 +86,16 @@ export function createVM(opts: VMOptions): VMApi {
     vga_memory_size: 8 * 1024 * 1024,
     screen_container: opts.container,
     // v86 derives a name from the buffer object, so it must be a File, not a Blob
-    [slot]: { buffer: new File([opts.image as BlobPart], `${slot}-image.img`) },
-    ...(dataDisk
-      ? { hda: { buffer: new File([dataDisk as BlobPart], 'nova-data.img') } }
-      : {}),
-    autostart: true,
+    ...(opts.skipDisk
+      ? {}
+      : (() => {
+          const drives: Record<string, unknown> = {
+            [slot]: { buffer: new File([opts.image as BlobPart], `${slot}-image.img`) },
+          };
+          if (dataDisk) drives.hda = { buffer: new File([dataDisk as BlobPart], 'nova-data.img') };
+          return drives;
+        })()),
+    autostart: opts.autostart ?? true,
   } as never);
 
   const raw = emulator as unknown as V86 & {
