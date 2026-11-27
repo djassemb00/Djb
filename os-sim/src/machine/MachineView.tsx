@@ -75,6 +75,8 @@ export function MachineView() {
   const [typed, setTyped] = useState('');
   const [showKeys, setShowKeys] = useState(false);
   const [storedAt, setStoredAt] = useState<number | null>(null);
+  /** the last write was refused (full disk / blocked storage): never show it as saved */
+  const [saveFailed, setSaveFailed] = useState(false);
   const padRef = useRef<HTMLInputElement | null>(null);
 
   const images = [...BUILTIN_IMAGES, ...userImages];
@@ -99,8 +101,11 @@ export function MachineView() {
     if (!vm) return;
     const bytes = vm.getDataDisk();
     if (!bytes) return;
-    await saveDisk(DATA_DISK_KEY, bytes);
-    setStoredAt(Date.now());
+    // only claim "saved" when the write reported success: saveDisk used to resolve
+    // unconditionally, so a full disk still produced a green tick
+    const stored = await saveDisk(DATA_DISK_KEY, bytes);
+    setStoredAt(stored ? Date.now() : null);
+    if (!stored) setSaveFailed(true);
   }, []);
 
 
@@ -221,7 +226,13 @@ export function MachineView() {
           window.setTimeout(() => {
             const state = vmRef.current === vm ? vm.saveState() : null;
             if (!state) return;
-            void state.then((buf) => saveDisk(SNAPSHOT_DB_KEY(active.id), new Uint8Array(buf)));
+            void state
+              .then((buf) => saveDisk(SNAPSHOT_DB_KEY(active.id), new Uint8Array(buf)))
+              .then((saved) => {
+                // a snapshot that did not land means the next boot resumes from an older
+                // one (or cold-boots). Say so instead of letting the user believe it saved.
+                if (!saved && alive) setSaveFailed(true);
+              });
           }, 1500);
         }
         if (alive || Date.now() - started > 15000) {
@@ -291,8 +302,20 @@ export function MachineView() {
     sfx.open();
     const vm = vmRef.current;
     const bytes = vm?.getDataDisk();
-    if (bytes) void saveDisk(DATA_DISK_KEY, bytes).then(() => vm?.restart());
-    else void vm?.restart();
+    if (!bytes) {
+      void vm?.restart();
+      return;
+    }
+    // Do not restart on a failed write: restarting rebuilds the disk from storage, so a
+    // failed save would silently throw away whatever the guest just wrote.
+    void saveDisk(DATA_DISK_KEY, bytes).then((stored) => {
+      if (stored) {
+        void vm?.restart();
+      } else {
+        setSaveFailed(true);
+        toast('تعذّر الحفظ — أُلغيت إعادة التشغيل لحماية ملفاتك');
+      }
+    });
     toast('إعادة تشغيل الجهاز');
   };
 
@@ -688,7 +711,13 @@ export function MachineView() {
             {active.id === 'novadesk' && (
               <div>
                 <span>الحفظ التلقائي</span>
-                <b>{storedAt ? 'محفوظ في المتصفح' : 'ينتظر أول حفظ'}</b>
+                <b>
+                  {saveFailed
+                    ? 'تعذّر الحفظ — المساحة ممتلئة'
+                    : storedAt
+                      ? 'محفوظ في المتصفح'
+                      : 'ينتظر أول حفظ'}
+                </b>
               </div>
             )}
             <div>

@@ -34,6 +34,9 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #3 | 2026-11-27 | ١٤ فحصاً | ١٤/١٤ ثم ١٨/١٨ في الدورة الكاملة | إضافة 1.11b (CI) + A10 + A11 |
 | #4 | 2026-11-27 | ١٨ فحصاً كاملة | **دورة نظيفة** | المدقّق الساكن صار فحصاً آلياً، و CI صار يعمل فعلاً |
 | #5 | 2026-11-27 | ١٦ تدقيقاً + إثبات | نظفت بعد إغلاق A12-A16 | ٤٧ اختباراً، CI أصبح قابلاً للنجاح فعلاً، وأرقام الواجهة صارت مُستشهَدة |
+| #6 | 2026-11-27 | ٢١ فحصاً | نظيفة | إغلاق A12-A16 |
+| #8 | 2026-11-27 | ٢١ فحصاً | نظيفة — فوسّعت الحلقة إلى **المنطق** لا الإعدادات فقط | ٩ ملفات · ٥٢ اختباراً |
+| #9 | 2026-11-27 | ٢٢ فحصاً | نظفت بعد إغلاق A17-A20 | +`tests/diskStore.test.ts` (٨) و`tests/install.test.ts` (٤) · فحص 1.13 جديد · ٦٤ اختباراً |
 
 ## العيوب المُغلقة
 
@@ -56,6 +59,10 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A14 | «Snapdragon 8 Gen 1 يهبط إلى **٧١٪** خلال ٣٠ دقيقة» | **رقم مفبرك**: لا مصدر يدعمه | https://techx.pk/snapdragon-8-gen-1-benchmarked-vs-snapdragon-888-gear-up-for-a-heated-2022/ — ٣٠ دقيقة اختبار خنق على Moto X30 → **٨٠٪**؛ وhttps://technosports.co.in/snapdragon-8-gen-1-oneplus-10-pro/ — OnePlus 10 Pro: **٨٧٪** بعد ٨ دقائق و**٨٨٪** في ٥٠ خيطاً و٧٩٪ أسوأ حالة | `gate 1.12` + `tests/deviceProfile.test.ts` «quotes a throttling figure that a real measurement supports» |
 | A15 | `const UA` على مستوى الوحدة في `deviceProfile.ts` | يجمّد user agent لحظة الاستيراد، فلا يلتقط تغييره | measured: أول اختبار لهذه الوحدة أعاد `generic` لـ`HONOR` لأن `UA` قُرئ قبل تثبيت `navigator` | `currentUa()` تُقرأ عند النداء + `tests/deviceProfile.test.ts` |
 | A16 | `src/system/routes.ts` بلا أي اختبار | الوحدة التي تحمل وعد الصدق («AAA لا تعمل داخل التطبيق») لم تُختبر | توثيق AOSP: AVF/pKVM يتطلب ARM64 + دعم OEM (https://source.android.com/docs/core/virtualization) وقائمة Podroid تُظهر جهاز Honor/MagicOS 8.0 **بدون** `virtualization_framework` | `tests/routes.test.ts` (٧ اختبارات) + `tests/deviceProfile.test.ts` (٥) |
+| A17 | `usePrograms.install` كان يضيف أيقونة البرنامج **قبل** معرفة أن القرص كُتب | على هاتف ممتلئ: أيقونة تُفتح على قرص غير موجود — أي «تثبيت» ناجح ظاهرياً وفاشل فعلياً | measured: `src/store/usePrograms.ts:93` كان `await saveDisk(...)` بلا فحص ناتج، ثم `set(...)` بعده مباشرة؛ و`tests/install.test.ts` يُظهر الفشل عند إرجاع السلوك القديم | `install` يفحص `hasRoomFor` **قبل** الكتابة و`saveDisk` **بعدها**، والاختبار يؤكد `programs.length === 0` عند فشل الحفظ |
+| A18 | `saveDisk` **لا يستطيع الإبلاغ عن الفشل** | `tx(...).then(() => undefined)` ينجح في كل الحالات: لا IndexedDB، حصة ممتلئة، ترانزاكشن مُلغى — كلها تبدو كتابة ناجحة | measured: `node tools/gate.mjs` لم يكن يرى الفرق، و`src/system/diskStore.ts:69` كان `.then(() => undefined)`؛ و`tests/diskStore.test.ts` «reports a save that could not happen» يفشل على النسخة القديمة | `saveDisk` يُرجع `boolean` حقيقياً + `gate 1.13` |
+| A19 | **`gate 1.13` نفسه لم يكتشف `void saveDisk`** | نسختي الأولى قرأت السطر فقط، فلم ترَ `void state.then((buf) => saveDisk(...))` | measured بالمصيدة: ٤ تشويهات (A: void · B: سلسلة تتجاهل النتيجة · C: callback بلا ربط · D: await بلا استخدام) — A/B/D اصطيدت، C تحتاج `tsc` | أُعيد كتابة 1.13 على نطاق **الجملة** لا السطر؛ وC تُمسَك في `4.1` (TS2552)، وهذا موثّق كتقسيم عمل لا كنجاح كامل |
+| A20 | **`void saveDisk` في حفظ اللقطة وفي إعادة التشغيل** — موضعان لم أرهما | اللقطة تفشل بصمت (العودة إلى لقطة أقدم)، و«إعادة التشغيل» تُعيد بناء القرص من التخزين فتُلقي ما كتبه الضيف للتوّ | measured: كشفهما `gate 1.13` بعد إعادة كتابته (`MachineView.tsx:229` و`:299`) | الإثنان صارا يفحصان الناتج؛ وإعادة التشغيل **تُلغى** عند فشل الحفظ مع رسالة صريحة |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -73,6 +80,12 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | 1.11 | `'force' → 'disable'` في `capacitor.config.ts` | FAIL ✔ |
 | 1.11b | إعادة إنشاء `os-sim/.github/workflows/ci.yml` | FAIL ✔ |
 | 2.1 | حذف استشهاد من صف في هذا الملف | FAIL ✔ |
+| 1.13 | `void saveDisk(...)` ثم `setStoredAt(now)` | FAIL ✔ |
+| 1.13 | `.then(() => restart())` بدل `.then((stored) =>` | FAIL ✔ |
+| 1.13 | `await saveDisk(...)` بلا استخدام الناتج | FAIL ✔ |
+| 1.13 | (نصّياً) callback بلا ربط — تُمسَك في `4.1` بـ`TS2552` | FAIL ✔ عبر tsc |
+| diskStore | إرجاع `true` دائماً بدل `result !== null` | FAIL ✔ |
+| install | إزالة فحص `hasRoomFor` أو فحص `stored` | FAIL ✔ |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 

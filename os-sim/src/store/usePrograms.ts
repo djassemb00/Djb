@@ -11,7 +11,7 @@
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { deleteDisk, loadDisk, saveDisk } from '../system/diskStore';
+import { deleteDisk, hasRoomFor, loadDisk, saveDisk } from '../system/diskStore';
 import { buildProgramDisk } from '../system/guest';
 
 export interface InstalledProgram {
@@ -88,9 +88,18 @@ export const usePrograms = create<ProgramsStore>()(
         const id = programId(fileName);
         set({ busy: id });
         try {
-          // build the bootable disk now, so the icon exists only if it really works
+          // build the bootable disk now, so the icon exists only if it really works.
+          // Two gates before the entry is allowed into the list:
+          //   1. is there room at all? (a 4 MB disk on a full phone is a silent no-op)
+          //   2. did the write actually land? saveDisk now reports that.
           const disk = await buildProgramDisk({ name: fileName, data });
-          await saveDisk(diskKey(fileName), disk);
+          if (!(await hasRoomFor(disk.byteLength))) {
+            throw new Error('لا توجد مساحة كافية في المتصفح لتثبيت هذا البرنامج');
+          }
+          const stored = await saveDisk(diskKey(fileName), disk);
+          if (!stored) {
+            throw new Error('فشل حفظ القرص — قد تكون مساحة التخزين ممتلئة أو المتصفح يمنع الحفظ');
+          }
           const entry: InstalledProgram = {
             id,
             name: fileName.replace(/\.[^.]*$/, '').toUpperCase().slice(0, 16),

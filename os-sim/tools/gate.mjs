@@ -178,6 +178,79 @@ function auditStatic() {
     untracked.length ? `gate depends on untracked: ${untracked.join(', ')}` : `${new Set(selfDeps).size} gate dependencies tracked`,
   );
 
+  // 1.13 a persisted write must be awaited and its result checked. The class of bug:
+  // storage helpers that resolve unconditionally, so "saved" is shown while nothing
+  // was stored. Any `void saveX(...)` or unawaited put is a finding.
+  const appFiles = [];
+  const walkSrc = (dir) => {
+    for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      const p2 = `${dir}/${e.name}`;
+      if (e.isDirectory()) walkSrc(p2);
+      else if (/\.(ts|tsx)$/.test(e.name)) appFiles.push(p2);
+    }
+  };
+  if (has('src')) walkSrc('src');
+  const unchecked = [];
+  for (const f of appFiles) {
+    const body = read(f);
+    for (const m of body.matchAll(/saveDisk\s*\(/g)) {
+      // skip the definition itself (`function saveDisk(` / `export async function saveDisk(`)
+      if (/function\s+$/.test(body.slice(Math.max(0, m.index - 20), m.index))) continue;
+      // take the whole STATEMENT around the call: from the previous `;`/`}` or line
+      // start to the matching `;` or the closing of its chain
+      const startIdx = Math.max(
+        body.lastIndexOf(';', m.index),
+        body.lastIndexOf('{', m.index),
+        body.lastIndexOf('\n', m.index) - 1,
+      );
+      const lineStart = body.lastIndexOf('\n', m.index) + 1;
+      // 900 chars back is enough to see the head of a chain like
+      //   void state
+      //     .then((buf) => saveDisk(...))
+      //     .then((stored) => { ... })
+      // A shorter window missed a chain whose result-consuming `.then` is two lines
+      // below the call -- mutation C escaped on exactly that.
+      const stmt = body.slice(Math.max(startIdx + 1, lineStart - 900), m.index + 900);
+      const head = body.slice(Math.max(0, m.index - 30), m.index);
+
+      // 1. a discarded promise: `void saveDisk(` with nothing consuming the boolean
+      const isVoid = /\bvoid\s+$/.test(head) || /\bvoid\s+saveDisk/.test(stmt);
+      // 2. the boolean must be bound somewhere: `= await saveDisk`, `= saveDisk(...).then(`
+      //    or a named `.then((stored) =>` / `.then((ok) =>` in the chain
+      const bindsResult =
+        /=\s*await\s+saveDisk/.test(stmt) ||
+        /=\s*saveDisk\s*\(/.test(stmt) ||
+        /\.then\(\s*\(?\s*[A-Za-z_$][\w$]*\s*\)?\s*=>/.test(stmt);
+      // 3. a fire-and-forget call that is not awaited at all
+      const awaited = /\bawait\s+saveDisk/.test(stmt) || /\.then\(/.test(stmt);
+      if (isVoid && !bindsResult) unchecked.push(`${f}: void ${stmt.split('\n')[0].trim().slice(0, 50)}`);
+      else if (!isVoid && !awaited && !bindsResult) unchecked.push(`${f}: unawaited saveDisk`);
+      else if (!isVoid && awaited && !bindsResult) unchecked.push(`${f}: result discarded`);
+    }
+  }
+
+  // Division of labour, stated so nobody assumes 1.13 is stronger than it is:
+  //   1.13 (text) catches a DISCARDED result -- `void saveDisk(...)`, a bare call, or
+  //        `await saveDisk(...)` with the boolean unused.
+  //   4.1 (tsc)  catches structure that text cannot: a chain whose callback no longer
+  //        binds the flag but still reads it. Proven by mutation C in AUDIT.md.
+  // The helper itself must not swallow its own result.
+  //
+  // deleteDisk deliberately keeps `.then(() => undefined)`: a failed delete leaves the
+  // bytes in place, which is the safe direction (nothing is claimed to be gone, and
+  // usePrograms removes the entry first). A failed SAVE is the dangerous direction --
+  // it claims data exists when it does not -- so that is what this check pins down.
+  const store = has('src/system/diskStore.ts') ? read('src/system/diskStore.ts') : '';
+  const saveBody = store.slice(store.indexOf('export async function saveDisk'), store.indexOf('export function deleteDisk'));
+  add(
+    '1.13',
+    'audit',
+    saveBody.includes('return result !== null') && !/\.then\(\(\) => undefined\)/.test(saveBody) && unchecked.length === 0,
+    saveBody.includes('return result !== null')
+      ? `saveDisk reports its result; ${unchecked.length} fire-and-forget writes`
+      : 'saveDisk discards its own result',
+  );
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the
