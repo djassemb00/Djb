@@ -280,3 +280,105 @@ export function daysSince(iso: string, now = Date.now()): number {
 export function staleSources(now = Date.now(), sources: SourceRef[] = SOURCES): SourceRef[] {
   return sources.filter((s) => daysSince(s.released, now) > SOURCE_STALE_DAYS);
 }
+
+/**
+ * PLAN ٣-٦: why each written value is what it is, keyed by the container key it explains.
+ *
+ * The old `rationale` was a flat list of six sentences for eleven written keys, so four
+ * keys (`audioDriver`, `hudMode`, `startupSelection`, `wineVersion`) reached Winlator with
+ * nothing in the UI explaining them -- the exact gap ٣-٦'s acceptance criterion names:
+ * "every value in the UI has a reason line explaining its source". The list is now keyed,
+ * and a gate check fails if a written key has no entry here.
+ *
+ * `source` is not a URL for every row: some values are Winlator's own defaults (the honest
+ * source is its code), some are our measurement, and one is a choice with a stated cost.
+ */
+export interface ValueReason {
+  /** the container key this explains */
+  key: string;
+  /** the value or a short form of it */
+  value: string;
+  /** one line, in the user's language */
+  why: string;
+  /** where the fact comes from: a URL, or the constant that defines it */
+  source: string;
+}
+
+export function reasonsFor(p: PrefixProfile): ValueReason[] {
+  return [
+    {
+      key: 'screenSize',
+      value: `${p.width}x${p.height}`,
+      why:
+        p.width === 1280
+          ? '١٢٨٠×٧٢٠: ما يجمع عليه المجتمع لألعاب AAA على هذا المعالج — أعلى دقة تُبقي الإطارات قابلة للعب'
+          : '٩٦٠×٥٤٠: جهاز غير معروف، فنبدأ من الأقل كلفة',
+      source: 'github.com/brunodev85/winlator-app — Container.DEFAULT_SCREEN_SIZE',
+    },
+    {
+      key: 'dxwrapper',
+      value: 'dxvk',
+      why: 'DXVK: ترجمة Direct3D إلى Vulkan. البديل (wined3d) أبطأ على Adreno',
+      source: 'Container.DEFAULT_DXWRAPPER',
+    },
+    {
+      key: 'dxwrapperConfig',
+      value: `version=${p.dxvk}`,
+      why:
+        p.dxvk === '1.10.3'
+          ? 'DXVK 1.10.3: ألعاب DirectX 9 تعمل أسلس على هذا الإصدار من 2.x'
+          : 'DXVK 2.4: المسار المستقر لـDirectX 10/11 على Adreno',
+      source: 'تجارب المجتمع على Winlator + إصدارات DXVK المنشورة',
+    },
+    {
+      key: 'envVars',
+      value: 'BOX64_DYNAREC_CALLRET · FORWARD (+ الافتراضيات)',
+      why: 'قيم Winlator الافتراضية تبقى، وفوقها تحسينان مقيسان في Box64',
+      source: 'printserver.ink/blog/box64-vs-fex — Box64 29.9٪ مقابل FEX 38.4٪ بلا ضبط',
+    },
+    {
+      key: 'box64Preset',
+      value: p.wow64 ? 'STABILITY' : 'PERFORMANCE',
+      why: p.wow64
+        ? 'الملف ٣٢-بت: أخفّ ضبط ترجمة لتفادي تعطّل المعرّف تحت Wine ٦٤-بت'
+        : 'الملف ٦٤-بت: أعلى ضبط ترجمة بلا حاجة إلى التوافقية',
+      source: 'github.com/brunodev85/winlator-app — Box64Preset.java',
+    },
+    {
+      key: 'audioDriver',
+      value: 'alsa',
+      why: 'ALSA: ما يعمل فعلاً داخل أندرويد عبر PulseAudio في الحاوية؛ البديلان (PulseAudio/OpenAL) بلا فائدة هنا',
+      source: 'Container.DEFAULT_AUDIO_DRIVER',
+    },
+    {
+      key: 'hudMode',
+      value: '1 (SIMPLE)',
+      why: 'عدّاد إطارات بسيط: يريك الأداء الحقيقي بلا أن يغطي الصورة. 0 يخفيه، 2 يضيف تفاصيل تستهلك جزءاً من الإطار',
+      source: 'Container.java — hudMode (FrameRating.Mode: DISABLED/SIMPLE/DETAILED)',
+    },
+    {
+      key: 'startupSelection',
+      value: '1 (ESSENTIAL)',
+      why: 'يبدأ المكوّنات الأساسية فقط: كل مكوّن إضافي يزيد زمن الإقلاع بلا فائدة للعبة',
+      source: 'Container.java — startupSelection',
+    },
+    {
+      key: 'wineVersion',
+      value: WINE_VERSION,
+      why: 'نسخة Wine التي تشحنها حاويات المجتمع: أي معرّف آخر يجعل Winlator يرجع إلى أحدث نسخة مثبّتة عنده',
+      source: 'حاويات Winlator المنشورة',
+    },
+    {
+      key: 'desktopTheme',
+      value: DESKTOP_THEME,
+      why: 'السمة الافتراضية: لا تؤثر في الأداء، وتُكتب صراحةً حتى لا تبدو ناقصة',
+      source: 'Container.java — desktopTheme',
+    },
+    {
+      key: 'name',
+      value: p.name,
+      why: 'اسم الحاوية كما ستراه في Winlator — مشتق من عنوان اللعبة في الكتالوج',
+      source: 'src/system/catalog.ts — عنوان اللعبة',
+    },
+  ];
+}

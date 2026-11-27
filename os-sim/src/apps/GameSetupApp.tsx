@@ -11,7 +11,7 @@
  * in one audited place instead of drifting in this component.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Cpu, Download, Gamepad2, Info, Loader2, Smartphone } from 'lucide-react';
+import { Check, Cpu, Download, Gamepad2, Info, Loader2, Smartphone } from 'lucide-react';
 import { CATALOG, LANE_LABEL, type CatalogEntry } from '../system/catalog';
 import {
   containerFileName,
@@ -20,6 +20,7 @@ import {
   PREREQUISITES,
   SOURCE_STALE_DAYS,
   SOURCES,
+  reasonsFor,
   toContainerJson,
 } from '../system/winePrefix';
 import { sfx } from '../system/sound';
@@ -27,6 +28,9 @@ import { EXPORT_DIR, describeExport, exportContainer, realExportDeps } from '../
 import { CONTAINER_GB, STATE_LABEL, evaluateRoute, type Answers } from '../system/routeStatus';
 import { detectHost, judgeShare, openInHost, takeSharedFile } from '../system/nativeLaunch';
 import { storageStatus } from '../system/diskStore';
+import { buildProfile, containerFromProfile, parseProfile } from '../system/profileSchema';
+import { saveProfile } from '../system/profileStore';
+import { SYNC_DEFAULT, describeSync, pullProfiles } from '../system/profileSync';
 
 
 export function GameSetupApp() {
@@ -36,6 +40,21 @@ export function GameSetupApp() {
   const [saving, setSaving] = useState(false);
   /** what actually happened to the last export, in the user's words */
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  /**
+   * PLAN ٣-٣ + ٣-١. What happened to the local save, and what the schema said about a
+   * pasted file. Both start as "not asked" (`null`), because rendering "محفوظ" or
+   * "مقبول" before anything happened is the class of lie this repo exists to remove.
+   */
+  const [saveState, setSaveState] = useState<{ stored: boolean; text: string } | null>(null);
+  const [importText, setImportText] = useState('');
+  const [importState, setImportState] = useState<{ ok: boolean; text: string } | null>(null);
+  /**
+   * PLAN ٣-٤. Sync starts at SYNC_DEFAULT, which is `{ enabled: false }` -- not a state
+   * this component decides. The toggle only ever changes `enabled`; the endpoint and key
+   * are never stored, because a key on disk is a key in the next backup.
+   */
+  const [syncOn, setSyncOn] = useState(SYNC_DEFAULT.enabled);
+  const [syncText, setSyncText] = useState<string | null>(null);
   /*
    * PLAN ٢-٥. A web app cannot list installed packages or read a driver version, so the
    * two facts only the user knows are ASKED, not faked. The one fact we can measure --
@@ -59,6 +78,28 @@ export function GameSetupApp() {
   );
   const lane = LANE_LABEL[selected.lane];
   const json = useMemo(() => toContainerJson(profile), [profile]);
+  /*
+   * PLAN ٣-١: the same container, expressed as a validated profile document. This is what
+   * gets stored (٣-٣) and what another device imports (٣-٥). It is built through the
+   * schema rather than assembled by hand, so a container that carries a key Winlator
+   * ignores cannot reach storage or the clipboard.
+   */
+  const doc = useMemo(
+    () =>
+      buildProfile({
+        id: selected.id,
+        title: selected.title,
+        sizeGB: selected.sizeGB,
+        soc: 'sd8gen1',
+        gpu: 'adreno730',
+        ramGB: 8,
+        container: JSON.parse(json) as Record<string, unknown>,
+        author: 'nova',
+        created: new Date().toISOString().slice(0, 10),
+        verifiedOnDevice: false, // we have never run this on a device; see AUDIT.md
+      }),
+    [json, selected],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -113,6 +154,35 @@ export function GameSetupApp() {
     const deps = await realExportDeps();
     const r = await exportContainer(containerFileName(selected.title), json, deps);
     setResult({ ok: r.ok, text: describeExport(r) });
+
+    /*
+     * PLAN ٣-٣: also keep the profile on the device, so the same settings are here after
+     * a restart with no network. The two outcomes are reported separately on purpose:
+     * the file can be written while the local copy fails (private mode), and saying
+     * "تم" for both would hide that.
+     */
+    /*
+     * One source for the tick and the sentence.
+     *
+     * The first version built `stored` and `text` separately (stored came from the store,
+     * the sentence from a ternary on the same field). Mutating only `stored` turned the
+     * line green while it still read "لم يُحفظ" -- a green tick over a failure sentence,
+     * which is the exact defect class this repo exists to remove. The verdict is now
+     * derived once, so colour and words cannot disagree.
+     */
+    let verdict: { stored: boolean; text: string };
+    if (doc.ok) {
+      const saved = await saveProfile(doc.profile);
+      verdict = saved.stored
+        ? { stored: true, text: `محفوظ على الجهاز باسم ${doc.profile.game.id} — يبقى بعد إعادة التشغيل` }
+        : { stored: false, text: saved.reason || 'لم يُحفظ: سبب غير معروف' };
+    } else {
+      verdict = {
+        stored: false,
+        text: `لم يُحفظ: الملف المولَّد لم يجتز المخطط — ${doc.issues.map((i) => i.message).join(' · ')}`,
+      };
+    }
+    setSaveState(verdict);
     setSaving(false);
   };
 
@@ -282,6 +352,130 @@ export function GameSetupApp() {
         </button>
       </div>
 
+      {/*
+        PLAN ٣-٣. The local copy's outcome, stated separately from the file export.
+        A profile that could not be stored (private mode, full disk) must not inherit the
+        green tick of a file that was written successfully.
+      */}
+      {saveState && (
+        <p
+          className="tiny"
+          role="status"
+          style={{ margin: '6px 0 0', color: saveState.stored ? 'var(--ok, #34d399)' : 'var(--danger, #f87171)' }}
+        >
+          {saveState.text}
+        </p>
+      )}
+
+      {/*
+        PLAN ٣-٤. The switch is visible and its state is stated in words, because
+        "المزامنة معطّلة" is a privacy claim the user is entitled to read, not infer from
+        an unlit toggle.
+      */}
+      <details className="setup-details">
+        <summary className="tiny">المزامنة (معطّلة افتراضياً)</summary>
+        <div className="row between" style={{ marginTop: 6, gap: 8 }}>
+          <span className="tiny">
+            {syncOn ? 'مفعّلة — تخرج إعداداتك إلى خادمك أنت' : 'معطّلة — لا يخرج شيء من الجهاز'}
+          </span>
+          <button
+            className="btn"
+            onClick={() => {
+              sfx.tap();
+              setSyncOn((v) => !v);
+              setSyncText(null);
+            }}
+          >
+            {syncOn ? 'أوقف' : 'فعّل'}
+          </button>
+        </div>
+        {syncOn && (
+          <p className="tiny muted" style={{ margin: '6px 0 0' }}>
+            لا خادم مُهيّأ في هذا البناء: العنوان والمفتاح يأتيان من إعداداتك، ولا يُكتب أي
+            منهما على القرص. لذلك سيقول السحب إنه غير مُهيّأ بدل أن يتصل بجهة نخمّنها.
+          </p>
+        )}
+        <div className="setup-actions" style={{ marginTop: 6 }}>
+          <button
+            className="btn"
+            onClick={async () => {
+              sfx.tap();
+              const r = await pullProfiles({ enabled: syncOn });
+              setSyncText(describeSync(r));
+            }}
+          >
+            اسحب الآن
+          </button>
+        </div>
+        {syncText && (
+          <p className="tiny" role="status" style={{ margin: '6px 0 0' }}>
+            {syncText}
+          </p>
+        )}
+      </details>
+
+      {/*
+        PLAN ٣-١/٣-٥. Import a profile from another device. The box takes a pasted file
+        because a WebView cannot read the clipboard or a picked file without a native
+        plugin we have not built; pasting is honest about what works today. Validation is
+        the schema's, and every refusal names the field.
+      */}
+      <details className="setup-details">
+        <summary className="tiny">استيراد إعداد من جهاز آخر</summary>
+        <textarea
+          value={importText}
+          onChange={(e) => {
+            setImportText(e.target.value);
+            setImportState(null);
+          }}
+          placeholder='الصق محتوى ملف .profile.json هنا'
+          rows={4}
+          style={{ width: '100%', marginTop: 6, fontSize: 11, fontFamily: 'monospace' }}
+          aria-label="محتوى ملف الإعداد"
+        />
+        <div className="setup-actions" style={{ marginTop: 6 }}>
+          <button
+            className="btn"
+            disabled={!importText.trim()}
+            onClick={() => {
+              sfx.tap();
+              let raw: unknown;
+              try {
+                raw = JSON.parse(importText);
+              } catch {
+                setImportState({ ok: false, text: 'الملف ليس JSON صالحاً — تحقّق من نسخه كاملاً' });
+                return;
+              }
+              const parsed = parseProfile(raw);
+              if (!parsed.ok) {
+                // every issue, because a file usually has more than one problem
+                setImportState({
+                  ok: false,
+                  text: `مرفوض: ${parsed.issues.slice(0, 4).map((i) => `${i.path ? i.path + ': ' : ''}${i.message}`).join(' · ')}`,
+                });
+                return;
+              }
+              const container = containerFromProfile(parsed.profile);
+              setImportState({
+                ok: true,
+                text: `مقبول: ${parsed.profile.game.title} — ${parsed.profile.container.screenSize ?? ''} · الحاوية ${container.length} بايت`,
+              });
+            }}
+          >
+            <Check size={13} /> تحقّق من الملف
+          </button>
+        </div>
+        {importState && (
+          <p
+            className="tiny"
+            role="status"
+            style={{ margin: '6px 0 0', color: importState.ok ? 'var(--ok, #34d399)' : 'var(--danger, #f87171)' }}
+          >
+            {importState.text}
+          </p>
+        )}
+      </details>
+
       {result && (
         <p
           className="tiny"
@@ -296,9 +490,25 @@ export function GameSetupApp() {
         <summary className="tiny">
           <Info size={12} /> لماذا هذه القيم؟
         </summary>
-        <ul className="tiny">
-          {profile.rationale.map((r) => (
-            <li key={r}>{r}</li>
+        {/*
+          PLAN ٣-٦: one clickable line per written key, each naming its own source.
+          The old list was six sentences for eleven keys, so four of them reached
+          Winlator with nothing on this screen explaining them.
+        */}
+        <ul className="tiny" style={{ paddingInlineStart: 14 }}>
+          {reasonsFor(profile).map((r) => (
+            <li key={r.key} style={{ marginBottom: 4 }}>
+              <details>
+                <summary style={{ cursor: 'pointer' }}>
+                  <code>{r.key}</code> = {r.value}
+                </summary>
+                <div className="tiny muted" style={{ margin: '2px 0 0 8px' }}>
+                  {r.why}
+                  <br />
+                  <span style={{ opacity: 0.75 }}>المصدر: {r.source}</span>
+                </div>
+              </details>
+            </li>
           ))}
         </ul>
         <div className="launcher-section">المتطلبات قبل أن يعمل الملف</div>

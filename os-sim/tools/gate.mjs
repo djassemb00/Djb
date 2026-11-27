@@ -726,6 +726,87 @@ function auditStatic() {
     }
   }
 
+  // 1.27 a module nothing imports is not a feature. This cycle I wrote profileSchema.ts
+  // and profileStore.ts, had them pass their own tests, and only noticed they were dead
+  // when the build size did not move by a single byte: neither was reachable from any
+  // component. A unit test does not prove wiring, and an unimported file ships nothing.
+  {
+    const walk = (dir) =>
+      readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((e) => {
+        const rel = `${dir}/${e.name}`;
+        if (e.isDirectory()) return walk(rel);
+        return /\.(ts|tsx)$/.test(e.name) ? [rel] : [];
+      });
+    const sources = has('src') ? walk('src') : [];
+    const text = Object.fromEntries(sources.map((f) => [f, read(f)]));
+    const orphan = sources.filter((f) => {
+      const base = f.split('/').pop() ?? '';
+      const stem = base.replace(/\.(ts|tsx)$/, '');
+      // a module is reachable if any OTHER file imports it by stem or path
+      return !sources.some((g) => {
+        if (g === f) return false;
+        const body = text[g] ?? '';
+        return body.includes(`/${stem}'`) || body.includes(`/${stem}"`) || body.includes(`/${base}'`);
+      });
+    });
+    // entry points legitimately have no importer
+    const entry = new Set(['src/main.tsx', 'src/vite-env.d.ts']);
+    const dead = orphan.filter((f) => !entry.has(f));
+    add(
+      '1.27',
+      'audit',
+      dead.length === 0,
+      dead.length
+        ? `written but never imported: ${dead.join(', ')} — a passing unit test does not prove wiring`
+        : `${sources.length} source modules are all reachable from the app`,
+    );
+  }
+
+  // 1.28 a written container key with no reason line is a value the user cannot audit.
+  // ٣-٦'s acceptance criterion is exactly this, and the shipped UI had six sentences for
+  // eleven keys until it was measured. Read from the source so it fails at the point of
+  // introduction, not only in the suite.
+  {
+    const wp = has('src/system/winePrefix.ts') ? read('src/system/winePrefix.ts') : '';
+    const ui = has('src/apps/GameSetupApp.tsx') ? read('src/apps/GameSetupApp.tsx') : '';
+    if (!wp.includes('reasonsFor')) {
+      add('1.28', 'audit', false, 'winePrefix.ts has no per-key reasons: some container values reach Winlator unexplained');
+    } else {
+      // the UI must consume the keyed reasons, not a flat list
+      const keyed = /reasonsFor\(profile\)\.map/.test(ui) && /<code>\{r\.key\}<\/code>/.test(ui);
+      add(
+        '1.28',
+        'audit',
+        keyed,
+        keyed
+          ? 'every written container key has a clickable reason line in the UI'
+          : 'the UI renders loose sentences instead of one line per written key (٣-٦)',
+      );
+    }
+  }
+
+  // 1.29 sync must default to off, and the default must come from one place. A privacy
+  // claim that depends on a component's initial state is a claim that can drift silently.
+  {
+    const sync = has('src/system/profileSync.ts') ? read('src/system/profileSync.ts') : '';
+    const ui = has('src/apps/GameSetupApp.tsx') ? read('src/apps/GameSetupApp.tsx') : '';
+    const offByDefault = /SYNC_DEFAULT[^=]*=\s*\{\s*enabled:\s*false\s*\}/.test(sync);
+    const uiUsesDefault = /useState\(SYNC_DEFAULT\.enabled\)/.test(ui);
+    const noCredential = !/https:\/\/[a-z0-9]{6,}\.supabase\.co/.test(sync);
+    add(
+      '1.29',
+      'audit',
+      offByDefault && uiUsesDefault && noCredential,
+      !offByDefault
+        ? 'sync is not off by default in SYNC_DEFAULT'
+        : !uiUsesDefault
+          ? 'the UI does not take its initial state from SYNC_DEFAULT, so the two can disagree'
+          : !noCredential
+            ? 'a Supabase endpoint is committed in the source: the user supplies it'
+            : 'sync is off by default, from one constant, with no committed credential',
+    );
+  }
+
   // 1.24 every XML under android/ must be legal XML. I shipped TWO files this cycle whose
   // comments contained a double hyphen ("-- maxSdkVersion", "-- a false negative"). aapt
   // rejects that at build time; the suite only noticed because I happened to parse the
@@ -860,6 +941,24 @@ function prove() {
       execSync(`gzip -c dist/assets/${main.f} | wc -c`, { cwd: ROOT, encoding: 'utf8' }).trim(),
     );
     add('4.4 size budget', 'prove', main.size < 800_000 && gz < 240_000, `js=${main.size} gzip=${gz}`);
+    /*
+     * A ceiling that is only checked at the ceiling tells you when you have already lost.
+     * The bundle sat at 93% (223 998 of 240 000) after phase 3 and nothing said so, so a
+     * phase-4 feature would have failed the build instead of prompting a decision. This
+     * separate line is a warning, not a failure: it prints the headroom in bytes at every
+     * cycle, and only fails if the headroom is gone.
+     */
+    const headroom = 240_000 - gz;
+    const warnAt = 16_384; // 16 KB: roughly one more small module's worth
+    add(
+      '4.4b budget headroom',
+      'prove',
+      headroom > 0,
+      headroom > warnAt ? `${headroom} bytes left` : `LOW: ${headroom} bytes left`,
+    );
+    if (headroom <= warnAt) {
+      console.log(`  !   4.4b only ${headroom} bytes of gzip headroom: the next feature must trade for it`);
+    }
   }
   // the bridge must be reachable through the real Capacitor runtime, not a stub
   run('node tools/bridge-smoke.mjs', '4.5 bridge smoke (real @capacitor/core)');
