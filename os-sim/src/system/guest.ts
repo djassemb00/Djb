@@ -11,10 +11,14 @@
  * `images/freedos-boot.img` at runtime and write them into a fresh floppy next to
  * the user's file.
  */
-import { buildFloppy, FLOPPY_MAX_FILE } from './fat12';
+import { CLUSTER, DATA_START, buildFloppy, FLOPPY_MAX_FILE } from './fat12';
 
-const CLUSTER = 1024;
-const DATA_START = 16896;
+/*
+ * These two numbers used to be local constants here ("1024" and "16896"), and the test
+ * for them restated the same literals -- the exact defect of round 25, where a contract
+ * test agreed with a copy of itself. They are the layout of fat12.ts, so they come from
+ * it now.
+ */
 /** offsets measured from our own freedos-boot.img (cluster numbers from its root dir) */
 const SYSTEM_FILES: { name: string; cluster: number; size: number }[] = [
   { name: 'KERNEL.SYS', cluster: 7, size: 45450 },

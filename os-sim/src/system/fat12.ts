@@ -27,9 +27,16 @@ export interface FloppyOptions {
   /** full AUTOEXEC.BAT body (multi-line); overrides `command` when present */
   autoexec?: string;
   /**
-   * A bootable image to take the boot sector *code* from (its BPB is also
-   * copied). Writing a BPB without boot code produces a disk the BIOS reads and
-   * then hangs on — measured: SeaBIOS stops at "Booting from Floppy...".
+   * A bootable image to take the boot sector *code* from. ONLY the first 3 bytes (the
+   * jump instruction) and bytes 62..510 (the boot code) are copied -- the BPB at 0..61
+   * is always written by us.
+   *
+   * Why: the BPB must describe the geometry THIS function writes (2 sectors/cluster,
+   * 224 root entries, data at 16896). Copying someone else's BPB over ours makes the
+   * disk unreadable: nova-desk.img has no BPB at all (its bytes 11..61 are boot code,
+   * which the previous version read as "36544 bytes per sector, 188 reserved sectors"),
+   * and kolibri.img has a 4-sector root directory. The old code copied whichever it was
+   * given and then wrote the root/FAT/data at OUR offsets anyway.
    */
   bootFrom?: Uint8Array;
 }
@@ -42,9 +49,11 @@ const FAT_SECTORS = 9;
 const ROOT_ENTRIES = 224;
 const SPC = 2; // 1024-byte clusters
 const ROOT_SECTORS = (ROOT_ENTRIES * 32) / SECTOR; // 14
-const ROOT_START = (RESERVED + FAT_COUNT * FAT_SECTORS) * SECTOR; // 9728
-const DATA_START = ROOT_START + ROOT_SECTORS * SECTOR; // 16896
+export const ROOT_START = (RESERVED + FAT_COUNT * FAT_SECTORS) * SECTOR; // 9728
+export const DATA_START = ROOT_START + ROOT_SECTORS * SECTOR; // 16896
 const CLUSTER_BYTES = SPC * SECTOR;
+/** exported so callers stop re-deriving it: guest.ts had its own `const CLUSTER = 1024` */
+export const CLUSTER = CLUSTER_BYTES;
 /** data sectors after the boot/FAT/root area, divided by sectors per cluster */
 const DATA_SECTORS = SECTORS - DATA_START / SECTOR; // 2867
 /**
@@ -95,16 +104,14 @@ function setFatEntry(fat: Uint8Array, index: number, value: number) {
   }
 }
 
-export function buildFloppy(opts: FloppyOptions): Uint8Array {
-  const disk = new Uint8Array(SECTORS * SECTOR);
-  const dv = new DataView(disk.buffer);
-
-  if (opts.bootFrom && opts.bootFrom.length >= SECTOR) {
-    disk.set(opts.bootFrom.subarray(0, SECTOR), 0);
-  } else {
-  /* ---- boot sector (BPB) ---- */
-  disk.set([0xeb, 0x3c, 0x90], 0);
-  disk.set(new TextEncoder().encode('NOVAAPPS'), 3); // OEM name
+/**
+ * Write the BIOS Parameter Block that describes the layout this module produces.
+ *
+ * One function, called by both branches, so the BPB can never describe a geometry other
+ * than the one written below it. `oem` is the 8-character name at offset 3.
+ */
+function writeBpb(dv: DataView, disk: Uint8Array, ownOem: boolean) {
+  if (ownOem) disk.set(new TextEncoder().encode('NOVAAPPS'), 3); // OEM name
   dv.setUint16(11, SECTOR, true); // bytes per sector
   disk[13] = SPC; // sectors per cluster
   dv.setUint16(14, RESERVED, true); // reserved sectors
@@ -122,8 +129,33 @@ export function buildFloppy(opts: FloppyOptions): Uint8Array {
   dv.setUint32(39, 0x4e4f5641, true); // volume id "NOVA"
   disk.set(new TextEncoder().encode('NOVAAPP    '), 43); // volume label (11)
   disk.set(new TextEncoder().encode('FAT12   '), 54);
-  disk[510] = 0x55;
-  disk[511] = 0xaa;
+}
+
+export function buildFloppy(opts: FloppyOptions): Uint8Array {
+  const disk = new Uint8Array(SECTORS * SECTOR);
+  const dv = new DataView(disk.buffer);
+
+  const tookCode = !!(opts.bootFrom && opts.bootFrom.length >= SECTOR);
+  if (tookCode) {
+    /*
+     * Keep the boot CODE, write our own BPB.
+     *
+     * The previous version copied the donor's whole boot sector, BPB included, and then
+     * wrote the FAT, the root directory and the data at OUR fixed offsets -- which are
+     * derived from OUR BPB. A donor with a different BPB produced a disk where the BPB
+     * and the layout disagree, i.e. one no system can read. nova-desk.img is exactly
+     * that case: it has no BPB at all (no 0xEB jump, no 55AA), so its boot code bytes at
+     * 11..61 were being copied in as "36544 bytes/sector, 188 reserved sectors".
+     */
+    const src = opts.bootFrom as Uint8Array;
+    disk.set(src.subarray(0, 3), 0);
+    disk.set(src.subarray(62, 510), 62);
+    disk[510] = 0x55;
+    disk[511] = 0xaa;
+    writeBpb(dv, disk, false);
+  } else {
+    disk.set([0xeb, 0x3c, 0x90], 0);
+    writeBpb(dv, disk, true);
   }
 
   /* ---- FATs ---- */
@@ -154,7 +186,25 @@ export function buildFloppy(opts: FloppyOptions): Uint8Array {
       'ECHO.\r\n' +
       'ECHO Program ended. Type DIR to list the disk.\r\n';
   const autoexec = new TextEncoder().encode(script);
-  files.push({ name: 'AUTOEXEC.BAT', data: autoexec });
+  const autoexecEntry = { name: 'AUTOEXEC.BAT', data: autoexec };
+  if (files.some((f) => f.name === autoexecEntry.name)) {
+    /*
+     * Two root entries with the same 8.3 name. DOS resolves the FIRST match and every
+     * later one is dead; here it meant the program bytes were written under a name the
+     * shell would never find (measured: a program called AUTOEXEC.BAT produced two
+     * entries, and trying to run it ran our script instead). Refuse instead.
+     */
+    throw new Error('الاسم AUTOEXEC.BAT محجوز لسكربت الإقلاع — أعد تسمية الملف');
+  }
+  files.push(autoexecEntry);
+
+  // no two entries may share a name: the second would be unreachable on a real DOS
+  const seen = new Set<string>();
+  for (const f of files) {
+    const key = f.name.toUpperCase();
+    if (seen.has(key)) throw new Error(`اسمان متطابقان على القرص: ${f.name}`);
+    seen.add(key);
+  }
 
   // The root directory holds ROOT_ENTRIES files and nothing more; a 225th write used to
   // land on ROOT_START + 224*32 == DATA_START, i.e. straight into the data area, quietl

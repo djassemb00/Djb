@@ -505,6 +505,36 @@ function auditStatic() {
     );
   }
 
+  // 1.21 the floppy writer must not take its layout from a donor image, and the layout
+  // must be stated in one place. Two defects: buildFloppy copied a donor's whole boot
+  // sector (BPB included) and then wrote the FAT/root/data at ITS OWN offsets, so a donor
+  // with a different BPB produced an unreadable disk; and guest.ts re-declared the same
+  // two constants locally instead of importing them.
+  {
+    const f12Path = 'src/system/fat12.ts';
+    const guestPath = 'src/system/guest.ts';
+    const f12 = has(f12Path) ? read(f12Path) : '';
+    const guest = has(guestPath) ? read(guestPath) : '';
+    const bpbIsOurs = /writeBpb\(/.test(f12) && /subarray\(62, 510\)/.test(f12);
+    const noWholeSectorCopy = !/disk\.set\(opts\.bootFrom\.subarray\(0, SECTOR\), 0\)/.test(f12);
+    const exportsLayout = /export const DATA_START/.test(f12) && /export const CLUSTER /.test(f12);
+    const guestImports = /import \{[^}]*DATA_START[^}]*\} from '\.\/fat12'/.test(guest);
+    const guestNoLiterals = !/const DATA_START = 16896/.test(guest) && !/const CLUSTER = 1024/.test(guest);
+    const uniqueNames = /اسمان متطابقان/.test(f12);
+    add(
+      '1.21',
+      'audit',
+      bpbIsOurs && noWholeSectorCopy && exportsLayout && guestImports && guestNoLiterals && uniqueNames,
+      !bpbIsOurs || !noWholeSectorCopy
+        ? 'buildFloppy copies a donor boot sector whole instead of keeping the BPB it writes'
+        : !exportsLayout || !guestImports || !guestNoLiterals
+          ? 'the disk layout is declared in more than one place'
+          : !uniqueNames
+            ? 'duplicate 8.3 names are allowed in the root directory'
+            : 'BPB is written by us, layout has one home, root names are unique',
+    );
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the

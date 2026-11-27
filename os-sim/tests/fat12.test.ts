@@ -44,9 +44,22 @@ describe('FAT12 writer', () => {
   });
 
   it('copies the boot code, because a bare BPB never starts a machine', () => {
+    /*
+     * This used to assert the WHOLE 512-byte boot sector was copied, which is what the
+     * writer did -- and that is the defect: the donor's BPB came with it, describing a
+     * different geometry from the FAT/root/data we then wrote at our own offsets.
+     * What has to be true is that the CODE is copied and the BPB is ours.
+     */
     const disk = buildFloppy({ data: new Uint8Array(10), bootFrom: boot });
-    expect(Array.from(disk.subarray(0, 3))).toEqual(Array.from(boot.subarray(0, 3)));
-    expect(Array.from(disk.subarray(0, 512))).toEqual(Array.from(boot.subarray(0, 512)));
+    expect(Array.from(disk.subarray(0, 3))).toEqual(Array.from(boot.subarray(0, 3))); // jump
+    expect(Array.from(disk.subarray(62, 510))).toEqual(Array.from(boot.subarray(62, 510))); // code
+    expect(disk[510]).toBe(0x55);
+    expect(disk[511]).toBe(0xaa);
+    // and the BPB is the one that matches the layout below it
+    expect(disk[11] | (disk[12] << 8)).toBe(512);
+    expect(disk[13]).toBe(2);
+    expect(disk[17] | (disk[18] << 8)).toBe(224);
+    expect(disk[22] | (disk[23] << 8)).toBe(9);
   });
 
   it('puts files in the root directory with 8.3 names and sizes', () => {
