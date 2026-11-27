@@ -1,7 +1,6 @@
 /* PONG — 16-bit real-mode DOS, text cells only, BIOS int 10h.
  * Public domain: written for this project. Player left paddle: W/S. Q quits.
  */
-#define TICK_ADDR 0x046C
 #define FW 68
 #define FH 16
 #define OX 6
@@ -18,17 +17,21 @@ static void clear(void) {
   __asm__ __volatile__("int $0x10" : : "a"(0x0600), "b"(0x0700), "c"(0), "d"(0x184f) : "memory");
   __asm__ __volatile__("int $0x10" : : "a"(0x0200), "d"(0), "b"(0) : "memory");
 }
-static int key_peek(void) {
-  unsigned short ax;
-  __asm__ __volatile__("int $0x16" : "=a"(ax) : "a"(0x0100) : "memory");
-  return ax >> 8;
+static int key_avail(void) {
+  unsigned char zero;
+  __asm__ __volatile__("int $0x16\n\tsetz %0" : "=q"(zero) : "a"(0x0100) : "memory");
+  return !zero;
 }
 static int key_get(void) {
   unsigned short ax;
   __asm__ __volatile__("int $0x16" : "=a"(ax) : "a"(0x0000) : "memory");
   return (ax >> 8) ? 0x100 | (ax >> 8) : (ax & 0xff);
 }
-static unsigned long ticks(void) { return *(volatile unsigned long *)TICK_ADDR; }
+static unsigned long ticks(void) {
+  unsigned short lo, hi;
+  __asm__ __volatile__("int $0x1a" : "=c"(hi), "=d"(lo) : "a"(0) : "memory");
+  return ((unsigned long)hi << 16) | lo;
+}
 static void print(const char *s) { while (*s) tty(*s++); }
 static void num(int v) {
   char b[6]; int i = 0;
@@ -88,9 +91,8 @@ __attribute__((section(".text.start"), noreturn)) void _start(void) {
 
   unsigned long last = ticks();
   for (;;) {
-    int k = key_peek();
-    if (k) {
-      k = key_get();
+    if (key_avail()) {
+      int k = key_get();
       if (k == 'q' || k == 'Q') exit_dos();
       if (k == 'w' || k == 'W') { if (py > 0) { put(OY + py + 3, OX + 2, ' '); py--; paddle(2, py, '#'); } }
       if (k == 's' || k == 'S') { if (py < FH - 4) { put(OY + py, OX + 2, ' '); py++; paddle(2, py, '#'); } }
@@ -119,7 +121,7 @@ __attribute__((section(".text.start"), noreturn)) void _start(void) {
       put(FH + 1, OX + 11, 'O'); put(FH + 1, OX + 12, 'U'); put(FH + 1, OX + 13, ' ');
       put(FH + 1, OX + 14, 'W'); put(FH + 1, OX + 15, 'I'); put(FH + 1, OX + 16, 'N'); put(FH + 1, OX + 17, '!');
       put(FH + 1, OX + 18, ' ');
-      for (;;) { int j = key_peek(); if (j) exit_dos(); }
+      for (;;) { if (key_avail()) exit_dos(); }
     }
   }
 }

@@ -2,7 +2,6 @@
  * Public domain: we wrote it, so it ships with the app without any licence risk.
  * Controls: arrow keys, Q quits.
  */
-#define TICK_ADDR 0x046C
 
 #define W 38
 #define H 18
@@ -22,18 +21,25 @@ static void put_rc(unsigned char row, unsigned char col, char c) {
 static void clear(void) {
   __asm__ __volatile__("int $0x10" : : "a"(0x0600), "b"(0x0700), "c"(0), "d"(0x184f) : "memory");
 }
-static int key_peek(void) {
-  unsigned short ax;
-  __asm__ __volatile__("int $0x16" : "=a"(ax) : "a"(0x0100) : "memory");
-  return (ax & 0xff00) ? (ax & 0xff) : 0;
+/* Any key waiting? int 16h AH=1 sets ZF when the buffer is empty. We must not test
+ * AL: for an arrow key AL==0 and AX!=0, and an "AL != 0" test would never see it. */
+static int key_avail(void) {
+  unsigned char zero;
+  __asm__ __volatile__("int $0x16\n\tsetz %0" : "=q"(zero) : "a"(0x0100) : "memory");
+  return !zero;
 }
 static int key_get(void) {
   unsigned short ax;
   __asm__ __volatile__("int $0x16" : "=a"(ax) : "a"(0x0000) : "memory");
   return ax & 0xff ? ax & 0xff : 0x100 | (ax >> 8);
 }
+/* BIOS tick counter via int 1Ah: segment-agnostic. Reading 0x046C directly is wrong
+ * in a .COM program because DS points at the PSP, not at segment 0 — the loop then
+ * never sees time pass and the game freezes on its first frame (found by measurement). */
 static unsigned long ticks(void) {
-  return *(volatile unsigned long *)TICK_ADDR;
+  unsigned short lo, hi;
+  __asm__ __volatile__("int $0x1a" : "=c"(hi), "=d"(lo) : "a"(0) : "memory");
+  return ((unsigned long)hi << 16) | lo;
 }
 static unsigned int seed = 12345;
 static unsigned int rnd(unsigned int n) {
@@ -97,9 +103,8 @@ __attribute__((section(".text.start"), noreturn)) void _start(void) {
 
   unsigned long last = ticks();
   for (;;) {
-    int k = key_peek();
-    if (k) {
-      k = key_get();
+    if (key_avail()) {
+      int k = key_get();
       if (k == 'q' || k == 'Q') break;
       if (k == 0x148) dir = 0;      /* up    */
       else if (k == 0x14d) dir = 1; /* right */

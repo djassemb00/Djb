@@ -3,6 +3,14 @@ import { useOS } from '../store/useOS';
 import { NovaMark } from '../components/NovaMark';
 import { useElementSize } from '../system/hooks';
 
+/** what we actually redistribute, and under which licence — BSD requires it on the UI */
+const CREDITS: { name: string; licence: string; note: string; href?: string }[] = [
+  { name: 'v86', licence: 'BSD-2-Clause', note: 'محرّك محاكاة x86 داخل WebAssembly', href: 'licenses/v86-LICENSE.txt' },
+  { name: 'FreeDOS', licence: 'GPL-2.0', note: 'نظام DOS على قرص البرامج (ملفات النظام)' },
+  { name: 'KolibriOS', licence: 'GPL-2.0', note: 'نظام سطح مكتب مصغّر' },
+  { name: 'NovaDesk · NovaOS', licence: 'كل الحقوق محفوظة', note: 'نواتنا وواجهتنا وبرامجنا (MENU · SNAKE · PONG)' },
+];
+
 export function AboutApp() {
   const viewport = useOS((s) => s.viewport);
   const settings = useOS((s) => s.settings);
@@ -22,6 +30,27 @@ export function AboutApp() {
         </div>
 
         <div style={{ padding: '0 14px 16px' }}>
+          <div className="card">
+            <div className="launcher-section" style={{ marginBottom: 4 }}>
+              المكوّنات والتراخيص
+            </div>
+            {CREDITS.map((c) => (
+              <div className="spec-row" key={c.name}>
+                <span>{c.name}</span>
+                <span className="os-mono tiny">
+                  {c.href ? (
+                    <a href={c.href} target="_blank" rel="noreferrer noopener">
+                      {c.licence}
+                    </a>
+                  ) : (
+                    c.licence
+                  )}
+                  {' · '}
+                  <span className="muted">{c.note}</span>
+                </span>
+              </div>
+            ))}
+          </div>
           <div className="card">
             <div className="spec-row">
               <span className="row" style={{ gap: 6 }}>

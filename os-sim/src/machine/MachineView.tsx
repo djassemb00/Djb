@@ -26,6 +26,7 @@ import { sfx } from '../system/sound';
 import { cx } from '../system/cx';
 import { detectDevice } from '../system/deviceProfile';
 import { readGovernor, thermalLabel, type GovernorReading } from '../system/thermal';
+import { GamePad, useGamepad } from './GamePad';
 
 /** size of the NovaFS IDE disk handed to the guest (NovaDesk only) */
 const NOVA_DATA_BYTES = 4 * 1024 * 1024;
@@ -79,6 +80,12 @@ export function MachineView() {
   const active = images.find((i) => i.id === activeImageId) ?? BUILTIN_IMAGES[0];
   /** a dropped file runs as its own session: no desktop, the program *is* the screen */
   const isProgram = !active.builtin && !!active.bytes;
+  // Games are arrow-key games. The pad is available for any program session and for
+  // the bundled games disk, and stays out of the way of the desktop guests.
+  const showPad = isProgram || active.id === 'dos-games';
+  // held-key tracking needs a stable sender: go through the ref so the hooks do not
+  // get a new function identity on every render
+  const pad = useGamepad((codes) => vmRef.current?.sendScancodes(codes), showPad && phase === 'ready');
 
   const toast = (msg: string) => {
     setShowToast(msg);
@@ -682,6 +689,10 @@ export function MachineView() {
           </div>
         </aside>
       </div>
+
+      {showPad && phase === 'ready' && (
+        <GamePad press={pad.press} release={pad.release} />
+      )}
 
       {showKeys && (
         <div className="keys-sheet" onClick={() => setShowKeys(false)}>
