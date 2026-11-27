@@ -243,10 +243,19 @@ async function run(disk: Uint8Array): Promise<string> {
     serial += String.fromCharCode(b & 0xff);
   });
   const t0 = Date.now();
-  while (!/XMSQ-END/.test(serial) && Date.now() - t0 < 40_000) {
-    await new Promise((r) => setTimeout(r, 150));
+  try {
+    while (!/XMSQ-END/.test(serial) && Date.now() - t0 < 40_000) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  } finally {
+    /* teardown must not depend on the loop having finished: an unfinished boot that throws
+       here would leave a wasm instance running into the next test file */
+    try {
+      emu.destroy?.();
+    } catch {
+      /* already gone */
+    }
   }
-  emu.destroy?.();
   return serial;
 }
 
