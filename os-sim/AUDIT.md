@@ -48,6 +48,8 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #18 | 2026-11-27 | ٣٠ فحصاً | نظفت بعد إغلاق A35-A39 | +`netInfo.ts` · `vitals.ts` · `tests/ui-honesty.test.ts` (١٢) · فحص 1.17 · ١١١ اختباراً |
 | #19 | 2026-11-27 | ٣١ فحصاً | نظيفة — فوسّعت الحلقة إلى **`useOS` ومخزن البرامج** | «مسح شامل» · مفاتيح الشبكة |
 | #20 | 2026-11-27 | ٣٢ فحصاً | نظفت بعد إغلاق A40-A43 | +`wipeAll()` · `tests/wipe.test.ts` (٩) · فحص 1.18 · ١٢٠ اختباراً |
+| #21 | 2026-11-27 | ٣٣ فحصاً | نظيفة — فوسّعت الحلقة إلى **`routes.ts` و`backButton.ts`** | ترتيب الرجوع · المساحة المطلوبة |
+| #22 | 2026-11-27 | ٣٤ فحصاً | نظفت بعد إغلاق A44-A46 | +`planBack()` · `storageNeededGB()` · `tests/back-and-route.test.ts` (١٤) · فحص 1.19 · ١٣٤ اختباراً |
 
 ## العيوب المُغلقة
 
@@ -97,6 +99,9 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A41 | **شبكة مخترعة: «Nova‑5G · إشارة قوية»** | شاشة الإعدادات وشاشة القفل تعرضان اسم شبكة وإشارة لا وجود لهما؛ التطبيق لا يستطيع قراءة SSID أصلاً | measured: `grep -rn "Nova‑5G" src/` → `SettingsApp.tsx:191` و`LockScreen.tsx:73` | الاسم أُزيل؛ النص يقول «التطبيق لا يرى اسم الشبكة»، والنوع من `navigator.onLine` وحده |
 | A42 | **اختبار «استدعاء المسح» مرّ على كود بلا استدعاء** | كتبت `expect(strip).toContain('wipeAll')` — والاسم موجود في سطر التحديد (`const wipeAll = usePrograms(...)`) حتى بعد حذف الاستدعاء | measured: تشويه حذف `await wipeAll()` → **٩/٩ ناجحة** | الاختبار صار على الاستدعاء نفسه: `/await\s+wipeAll\s*\(\s*\)/` + ترتيبه قبل `resetAll()` → التشويه يفشل |
 | A43 | **فحصان جديدان كتبا مسار ملف نصاً، فـ1.8b رآهما اعتماداً على ملف غير موجود** | `SettingsApp.ts` (بلا x) مرة في 1.17، ومرة أخرى في 1.18 — نفس مصيدة A39 تكرّرت لأنني أصلحت الموقع ولم أُصلح الصنف | measured: `FAIL 1.8b gate depends on untracked: src/apps/SettingsApp.ts` مرتين | `findOne(dir, needle)` تبحث بالاسم في كل فحوص الواجهة |
+| A44 | **زر الرجوع يغلق الورقة التي لا يراها المستخدم** | `App.tsx` يمرّر المعالجات بترتيب `center, launcher, power`، لكن الأوراق تُرسم بـ`z-index` 960/970/980 — فبوجود ورقتين مفتوحتين يُغلق الرجوع السفلية ويبقى الظاهرة | measured: استخراج `z-index` من `styles.css` → `.nc 960 · .launcher 970 · .power-menu 980`، ومقارنته بـ`App.tsx:35-41` | `SHEET_Z` + `BACK_ORDER` مشتقّة بالفرز من `z-index` نفسه (لا قائمة يدوية) + `planBack()` دالة نقية تُختبر لكل تركيبة |
+| A45 | **«مساحة مطلوبة» أصغر من الحاجة الحقيقية بأكثر من النصف** | الصيغة كانت `bytes × 1.6` موسومة «اللعبة + حاوية Wine». لتنزيل ١٫٦ غيغا تقول **٣ غيغا** والحاجة: ١٫٦×٣ بعد التثبيت + ١٫٥ للحاوية = **٦٫٣** | measured: `.p.ts` على `adviseRoute({bytes: 1.6e9})` → `storage: «3 غيغا»` مقابل حساب صريح ٦٫٣ | `storageNeededGB()` = `ceil(download × EXPANSION_MIN + CONTAINER_GB)`، والمعاملان مذكوران في النص المعروض |
+| A46 | **القانون كان أعمى عن كل ملف `.tsx`** | تعبير `1.8b` النمطي `(?:mjs\|js\|ts\|json\|md)` يطابق `ts` ويتوقف، فـ`src/App.tsx` يُقتطع إلى `src/App.ts` — ملف غير موجود. **لهذا** ظهر A39 وA43 ثلاث مرات: لم تكن مصيدة كتابة المسار بل عيباً في الفحص نفسه | measured: `"read('src/App.tsx')".match(...)` → `["read('src/App.ts"]`؛ وإرجاع التعبير القديم يُعيد `FAIL 1.8b` فوراً | `tsx` قبل `ts` في التعبير؛ و1.8b الآن يقول `11 gate dependencies tracked` بدل الاسم المبتور |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -148,6 +153,10 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | wipe | عدّ فشل الحذف كنجاح | FAIL ✔ |
 | wipe | حذف `await wipeAll()` من زر المسح (مع بقاء الاسم) | **PASSED ✘** → بعد إصلاح الاختبار → FAIL ✔ |
 | wipe | إعادة `Nova‑5G` | FAIL ✔ (اختبار + فحص 1.18) |
+| back | إعادة الترتيب اليدوي `center` أولاً | FAIL ✔ (٤ اختبارات) |
+| back | إعادة المكدّس اليدوي في `App.tsx` | FAIL ✔ |
+| route | إعادة `bytes × 1.6` | FAIL ✔ (٣ اختبارات) |
+| gate 1.8b | إعادة التعبير الأعمى عن `.tsx` | FAIL ✔ (`src/App.ts`) |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 

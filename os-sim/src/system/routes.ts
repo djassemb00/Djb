@@ -26,6 +26,27 @@ export interface RouteAdvice {
 export const ENGINE_MIPS = 70;
 export const NATIVE_MIPS = 5000;
 
+/**
+ * How much free storage a Windows program really needs.
+ *
+ * The old figure was `bytes * 1.6` labelled "(the game + a Wine container)". That is
+ * wrong twice: a setup.exe expands when installed (3-5x is ordinary), and a Winlator
+ * container with DXVK/Turnip is ~1.5 GB by itself. For a 1.6 GB download the old code
+ * said 3 GB when the honest number is 6.3 GB -- a user with 4 GB free would be told they
+ * had room and would run out of space mid-install.
+ *
+ * Both multipliers are stated, not hidden, because they are estimates of other people's
+ * installers and we cannot measure them from here.
+ */
+export const EXPANSION_MIN = 3; // installed size / download size, lower bound for a game
+export const CONTAINER_GB = 1.5; // Winlator container + DXVK + Turnip
+export const GB = 1073741824;
+
+export function storageNeededGB(downloadBytes: number): number {
+  const download = downloadBytes / GB;
+  return Math.ceil(download * EXPANSION_MIN + CONTAINER_GB);
+}
+
 /** rough classes, from things we have actually run to things no phone can run */
 export function adviseRoute(opts: {
   /** true when the file has no PE header (DOS-era executable) */
@@ -56,9 +77,13 @@ export function adviseRoute(opts: {
       route: 'native',
       title: 'لعبة كبيرة — مسار أصلي فقط',
       detail:
-        `حجم الملف ${(size / 1073741824).toFixed(1)} غيغا. هذا حجم لعبة AAA: تحتاج Winlator/GameNative ` +
-        'مع DXVK وTurnip و٧٢٠p، وتوقّع ٢٠–٤٠ إطاراً/ثانية على جهازك. لا يمكن لمحرّك داخل المتصفح.',
-      storage: `${Math.ceil((size * 1.6) / 1073741824)} غيغا حرة على الأقل (اللعبة + حاوية Wine)`,
+        `حجم الملف ${(size / GB).toFixed(1)} غيغا — فئة AAA: تحتاج Winlator/GameNative مع DXVK وTurnip ` +
+        'على ٧٢٠p. المعدّل الذي قِسناه (٢٠–٤٠ إطاراً) كان على GTA V تحديداً، لا على كل لعبة ' +
+        'بهذا الحجم. لا يمكن لمحرّك داخل المتصفح.',
+      // stated honestly: download x3 for the installed tree, plus the container itself
+      storage:
+        `${storageNeededGB(size)} غيغا حرة على الأقل ` +
+        `(تنزيل ${(size / GB).toFixed(1)} غيغا × ${EXPANSION_MIN} بعد التثبيت + ${CONTAINER_GB} للحاوية)`,
     };
   }
   if (opts.is64) {

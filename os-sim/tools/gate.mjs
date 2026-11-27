@@ -167,7 +167,10 @@ function auditStatic() {
   const tracked = new Set(
     execSync('git ls-files', { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean),
   );
-  const selfDeps = (read('tools/gate.mjs').match(/(?:run\('node |read\(')([\w./-]+\.(?:mjs|js|ts|json|md))/g) ?? [])
+  // .tsx before .ts: the alternation used to match "ts" and stop, so every .tsx path the
+  // gate read was reported as a .ts path that does not exist -- which made 1.8b cry wolf
+  // three times (A39/A43) and hid the real defect: the gate could not see .tsx at all.
+  const selfDeps = (read('tools/gate.mjs').match(/(?:run\('node |read\(')([\w./-]+\.(?:mjs|js|tsx|ts|json|md))/g) ?? [])
     .map((m) => m.replace(/^run\('node /, '').replace(/^read\('/, ''))
     .filter((f) => !f.startsWith('node_modules'));
   const untracked = [...new Set(selfDeps)].filter((f) => !tracked.has(f));
@@ -407,6 +410,43 @@ function auditStatic() {
           : inventedSsid
             ? 'settings shows an invented Wi-Fi name / signal strength'
             : 'the wipe clears program disks too, and no SSID is invented',
+    );
+  }
+
+  // 1.19 two decision tables that must agree with a source outside themselves:
+  //   (a) back-press order must be derived from the sheets' real z-index in styles.css
+  //   (b) storage advice must not be the old download*1.6 claim
+  {
+    const bbPath = 'src/system/backButton.ts';
+    const rtPath = 'src/system/routes.ts';
+    const bb = has(bbPath) ? read(bbPath) : '';
+    const rt = has(rtPath) ? read(rtPath) : '';
+    const css = has('src/styles.css') ? read('src/styles.css') : '';
+    const zOf = (cls) => {
+      const m = new RegExp('\\n\\.' + cls + '\\s*\\{([^}]*)\\}').exec(css);
+      const z = m && /z-index:\s*(\d+)/.exec(m[1]);
+      return z ? Number(z[1]) : null;
+    };
+    const cited = { center: 960, launcher: 970, power: 980 };
+    const zOk =
+      zOf('nc') === cited.center && zOf('launcher') === cited.launcher && zOf('power-menu') === cited.power;
+    const derived = /sort\(\s*\(a, b\)\s*=>\s*SHEET_Z\[b\]\s*-\s*SHEET_Z\[a\]\s*\)/.test(bb);
+    const appUsesPlan = has('src/App.tsx') && /planBack\(/.test(read('src/App.tsx'));
+    const oldStorage = /\*\s*1\.6\s*\)\s*\/\s*1073741824/.test(rt);
+    const scalable = /EXPANSION_MIN/.test(rt) && /CONTAINER_GB/.test(rt);
+    add(
+      '1.19',
+      'audit',
+      zOk && derived && appUsesPlan && scalable && !oldStorage,
+      !zOk
+        ? `sheet z-index changed in styles.css (${zOf('nc')}/${zOf('launcher')}/${zOf('power-menu')}) without updating the back order`
+        : !derived
+          ? 'back order is hand-written again instead of derived from SHEET_Z'
+          : !appUsesPlan
+            ? 'App.tsx no longer routes back presses through planBack()'
+            : oldStorage || !scalable
+              ? 'storage advice is back to bytes*1.6'
+              : 'back order derives from the stylesheet; storage advice scales and names its factors',
     );
   }
 

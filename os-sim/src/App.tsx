@@ -12,7 +12,7 @@ import { NovaMark } from './components/NovaMark';
 import { MachineView } from './machine/MachineView';
 import { useVM } from './store/useVM';
 import { cx } from './system/cx';
-import { installBackHandler } from './system/backButton';
+import { installBackHandler, planBack } from './system/backButton';
 
 export default function App() {
   const phase = useOS((s) => s.phase);
@@ -33,11 +33,21 @@ export default function App() {
   useEffect(
     () =>
       installBackHandler([
-        () => center && (setCenter(false), true),
-        () => launcher && (setLauncher(false), true),
-        () => power && (setPower(false), true),
-        () => vmScreen === 'machine' && (setVmScreen('desktop'), true),
-        () => false, // at the desk: let Android do its normal thing (pause/exit)
+        // one handler, one decision: planBack() closes the TOPMOST sheet by its real
+        // z-index, so two open sheets cannot make back close the wrong one
+        () => {
+          const layer = planBack({
+            center,
+            launcher,
+            power,
+            machine: vmScreen === 'machine',
+          });
+          if (layer === 'center') return setCenter(false), true;
+          if (layer === 'launcher') return setLauncher(false), true;
+          if (layer === 'power') return setPower(false), true;
+          if (layer === 'machine') return setVmScreen('desktop'), true;
+          return false; // at the desk: let Android do its normal thing (pause/exit)
+        },
       ]),
     [center, launcher, power, vmScreen, setVmScreen],
   );
