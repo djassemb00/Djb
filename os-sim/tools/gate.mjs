@@ -303,6 +303,42 @@ function auditStatic() {
     );
   }
 
+  // 1.16 every built-in disk a card advertises must exist AND the card's claims must be
+  // consistent with geometry. A 1.44 MB floppy cannot hold a "2 MB" program, and a card
+  // that lists titles the image does not contain is the worst kind of promise.
+  if (has('src/store/useVM.ts') && has('public/images/dos-games.img')) {
+    const vm = read('src/store/useVM.ts');
+    const img = readFileSync(join(ROOT, 'public/images/dos-games.img'));
+    // read the root directory and collect the names actually present
+    const present = [];
+    for (let i = 0; i < 224; i++) {
+      const off = 9728 + i * 32;
+      if (img[off] === 0) break;
+      const n = img.subarray(off, off + 8).toString('latin1').trim();
+      present.push(n);
+    }
+    // strip comments before looking for claims: the code carries a comment that NAMES
+    // the four games it used to advertise, and a naive scan flagged its own explanation.
+    const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const card = stripComments(vm.slice(vm.indexOf("id: 'dos-games'"), vm.indexOf("id: 'freedos'")));
+    // any known commercial DOS title named in the card must be present in the image
+    const named = ['PRINCE', 'WOLF', 'DOOM', 'DUKE'].filter((t) => new RegExp(t, 'i').test(card));
+    const lies = named.filter((t) => !present.some((p) => p.startsWith(t.slice(0, 4))));
+    // geometry claims
+    const mbClaims = [...card.matchAll(/(\d+(?:\.\d+)?)\s*ميغابايت/g)].map((m) => Number(m[1]));
+    const overGeometry = mbClaims.filter((n) => n > 1.44);
+    add(
+      '1.16',
+      'audit',
+      lies.length === 0 && overGeometry.length === 0,
+      lies.length
+        ? `dos-games card names absent titles: ${lies.join(', ')} (disk has ${present.join(', ')})`
+        : overGeometry.length
+          ? `dos-games card claims ${overGeometry.join(', ')} MB, disk is 1.44 MB`
+          : `dos-games card matches its image (${present.length} entries)`,
+    );
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the

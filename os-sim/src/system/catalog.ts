@@ -48,7 +48,7 @@ export const CATALOG: CatalogEntry[] = [
     install: 'نسخة Lite (٢–٩ غيغا) + Winlator / GameNative',
     fps: '٢٠–٤٠',
     note: '٦٤-بت وDirectX 11: يحتاج DXVK + Turnip على ٧٢٠p. نسخة Enhanced لا تعمل على أي هاتف.',
-    kind: 'arcade',
+    kind: 'shooter',
   },
   {
     id: 'gta-sa',
@@ -60,7 +60,7 @@ export const CATALOG: CatalogEntry[] = [
     fps: '٦٠',
     note: 'بناء ARM64 أصلي: بلا ترجمة إطلاقاً — أسرع بمرات من مسار Wine للعبة نفسها.',
     link: 'https://play.google.com/store/apps/details?id=com.rockstargames.gtasa',
-    kind: 'arcade',
+    kind: 'shooter',
   },
   {
     id: 'gta-iii',
@@ -72,7 +72,7 @@ export const CATALOG: CatalogEntry[] = [
     fps: '٦٠',
     note: 'أصلي على ARM64.',
     link: 'https://play.google.com/store/apps/details?id=com.rockstargames.gta3',
-    kind: 'arcade',
+    kind: 'shooter',
   },
   {
     id: 'gta-vc',
@@ -84,7 +84,7 @@ export const CATALOG: CatalogEntry[] = [
     fps: '٦٠',
     note: 'أصلي على ARM64.',
     link: 'https://play.google.com/store/apps/details?id=com.rockstargames.gtavc',
-    kind: 'arcade',
+    kind: 'shooter',
   },
   {
     id: 'doom',
@@ -92,7 +92,7 @@ export const CATALOG: CatalogEntry[] = [
     year: 1993,
     sizeGB: 0.05,
     lane: 'wine',
-    install: 'Delta Touch (محرّك أصلي) أو محرّكنا لنسخة DOS',
+    install: 'Delta Touch (محرّك أصلي) — أو محرّكنا مع ملفات WAD التي تملكها',
     fps: '٦٠',
     note: 'محرّكات المصدر المفتوح (PrBoom+/GZDoom) مُنقّلة أصلياً إلى ARM64 — أسرع طريق بكثير من محاكاة DOS.',
     kind: 'shooter',
@@ -114,9 +114,12 @@ export const CATALOG: CatalogEntry[] = [
     year: 1992,
     sizeGB: 0.1,
     lane: 'dos',
-    install: 'محرّكنا (DOS) — أو ECWolf الأصلي',
+    // We can BOOT a DOS program the user supplies (measured: tests/guest.test.ts boots a
+    // dropped program and prints its message). We cannot ship Wolfenstein 3D, so the
+    // install line has to say who brings the files.
+    install: 'أنت تجلب ملفات اللعبة (قرصك/شراؤك) — محرّكنا يُقلعها، أو ECWolf الأصلي',
     fps: '٦٠',
-    note: 'لعبة ١٦-بت نصية/رسومية خفيفة: هذا هو المكان الذي يتفوّق فيه محرّكنا.',
+    note: 'DOS ١٦-بت خفيف: أسرع مسار له هو محرّكنا، شرط أن تملك ملفات اللعبة.',
     kind: 'shooter',
   },
   {
@@ -128,7 +131,9 @@ export const CATALOG: CatalogEntry[] = [
     install: 'منفذ أندرويد رسمي',
     fps: '٦٠',
     note: 'مفتوح المصدر ومُنقّل أصلياً.',
-    link: 'https://play.google.com/store/apps/details?id=org.openttd.sdl',
+    // The old link (org.openttd.sdl) has been dead on Play for years. OpenTTD ships
+    // from its own site and on F-Droid; point at the project, not a dead listing.
+    link: 'https://www.openttd.org/downloads/openttd-releases/latest',
     kind: 'strategy',
   },
   {
@@ -147,18 +152,20 @@ export const CATALOG: CatalogEntry[] = [
     id: 'snake',
     title: 'SNAKE',
     year: 2026,
-    sizeGB: 0.001,
     lane: 'dos',
     install: 'مثبّت داخل التطبيق بلمسة',
     fps: '٦٠',
-    note: 'لعبتنا: ١٫٣ كيلوبايت، تُقلع في ٦٠٠ مللي ثانية.',
+    // 1408 bytes on disk (os-dos/SNAKE.COM). The old "1.3 KB" was the size of the
+    // SOURCE file before assembly, not the program we ship.
+    sizeGB: 0.0000013,
+    note: 'لعبتنا: ١٤٠٨ بايتاً، تُقلع خلال ثانية واحدة.', // "1.3 KB" was the source, "600 ms" was never measured
     kind: 'arcade',
   },
   {
     id: 'pong',
     title: 'PONG',
     year: 2026,
-    sizeGB: 0.002,
+    sizeGB: 0.0000023, // 2443 bytes (os-dos/PONG.COM)
     lane: 'dos',
     install: 'مثبّت داخل التطبيق بلمسة',
     fps: '٦٠',

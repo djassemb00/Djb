@@ -42,6 +42,8 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #12 | 2026-11-27 | ٢٥ فحصاً | نظيفة | إغلاق A21-A26 |
 | #13 | 2026-11-27 | ٢٥ فحصاً | نظيفة — فوسّعت الحلقة إلى **`pe.ts` على ملفات PE حقيقية** | ٣ ملفات MSVC 2019 حقيقية نُزّلت من GitHub |
 | #14 | 2026-11-27 | ٢٦ فحصاً | نظفت بعد إغلاق A27-A29 | +`tests/pe-real.test.ts` (١٢) · فحص 1.15 جديد · ٨٨ اختباراً |
+| #15 | 2026-11-27 | ٢٧ فحصاً | نظيفة — فوسّعت الحلقة إلى **الوعود المعروضة للمستخدم** | الكتالوج وبطاقات الأقراص |
+| #16 | 2026-11-27 | ٢٨ فحصاً | نظفت بعد إغلاق A30-A34 | +`tests/catalog.test.ts` (١١) · فحص 1.16 جديد · ٩٩ اختباراً |
 
 ## العيوب المُغلقة
 
@@ -77,6 +79,11 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A27 | **`inspectPE` يحدّد الاستيرادات من اسم القسم لا من دليل الاستيراد** | على ملفات MSVC حقيقية: أسماء **دوالّ مبتورة** («LEAVECRITICALSECTION») تُعرَض كأسماء مكتبات، والملف ٦٤-بت («.idata» سادس الأقسام) يُرجع **صفر** استيرادات — أي أن كاشف `.NET` صامت | measured: `complex-msvc2019-x86-O2.exe` → `imports: LEAVECRITICALSECTION, &DECODEPOINTER, …` و`complex-msvc2019-x64-O2.exe` → `(none found)`؛ و`node` أظهر أن دليل الاستيراد `rva=0xd11ec` بينما `.idata` في موضع آخر | القراءة من `opt + (is64 ? 112 : 96) + 8`؛ ومسار اسم القسم محفوظ **كاحتياط موثّق فقط**؛ و`gate 1.15` يمنع الرجوع |
 | A28 | **لا تحقّق من اكتمال الملف** | ملف تنزيل مُلغى عند ١ كيلو بايت كان يُبلَّغ عنه «برنامج Win32 32-بت يعمل» مع أن جسمه غير موجود. وملف بترويسة PE في آخر ٢٤ بايت كان يُقرأ خارج الحدود فتُعيد `DataView` قيمة مُقتطعة → `machine i386` و`native-32` كاذبة | measured: `truncated to 600 B → ok=true`, `truncated to 1024 B → ok=true`, و`peOffset = len-10 → ok=true verdict=native-32` | ثلاثة حرّاس: `opt+4 <= len`، ثم `sec + sectionCount*40 <= len`، ثم أكبر `rawPtr+rawSize` لكل الأقسام؛ الحالات الثلاث تُرفض الآن بـ«ملف ناقص» |
 | A29 | فلتر أسماء DLL **غير مُثبَت** | حذفه بالكامل لا يُسقط أي اختبار: الإشارة إلى `.text` تنتج قائمة **فارغة**، والقائمة الفارغة تُحقّق «لا أسماء سيئة» تلقائياً | measured بالمصيدة: mutation 4 نجح (`Tests 12 passed`) رغم حذف الفلتر | الاختبار يكتب `"hello\0"` في `.rdata` ويوجّه المدخل الأول إليه: مع الفلتر **يُرفض**، وبدونه **يُقبل** |
+| A30 | **بطاقة «ألعاب DOS» كانت تعد بأربع ألعاب غير موجودة** | Prince of Persia · Wolfenstein 3D · Doom · Duke Nukem 3D — ولا واحد منها في الصورة، ولا واحد منها يمكن شحنه قانونياً. الصورة تحوي: KERNEL.SYS · COMMAND.COM · CONFIG.SYS · **SNAKE.COM · PONG.COM · MENU.COM** · AUTOEXEC.BAT | measured بقراءة الدليل الجذري للصورة مباشرة (`python` يطبع ٧ مداخل) وبقراءة نصوص `MENU.COM` («1 SNAKE · 2 PONG · 3 DOS command line») | نُصّحت البطاقة لتسمّي ما فيها؛ و`gate 1.16` يقارن البطاقة بالصورة بايتاً ببايت |
+| A31 | `sizeGB` لألعابنا خطأ، وتصريح «تُقلع في ٦٠٠ مللي» غير مقيس | SNAKE: «١٫٣ كيلوبايت» كان حجم **المصدر** لا البرنامج (١٤٠٨ بايت)؛ PONG ادّعى ٢ ميغا وهو ٢٤٤٣ بايت — أي أكبر من كامل القرص الذي يسكنه | measured: `ls -l os-dos/*.COM` → `1408 SNAKE.COM · 2443 PONG.COM · 784 MENU.COM` | `sizeGB` صار من الحجم الحقيقي، والحكم الزمني صار «خلال ثانية» (لا رقم غير مقيس) |
+| A32 | تصنيف خاطئ: GTA الخمسة `kind: 'arcade'` | الألعاب تنسب إلى فئة غير فئتها، وأي فلترة مستقبلية للمكتبة ستخطئ | measured: `grep -n "kind:" src/system/catalog.ts` أظهر أربعة عناوين GTA بـ`arcade`، والمرجع هو وصف Rockstar الرسمي لكل عنوان (عالم مفتوح + قيادة + سلاح) → `shooter` مثل GTA V في السطر ٥١ | صُحّحت الخمسة، و`tests/catalog.test.ts` يفرضها |
+| A33 | رابط ميت: `org.openttd.sdl` | زر «تثبيت» على Play يفتح صفحة محذوفة منذ سنوات | measured: `curl` لكل رابط في الكتالوج أعاد `000` (الشبكة محجوبة هنا) → لا يمكن التحقق، والحكم منع الصنف لا تصحيح حالة واحدة؛ وhttps://www.openttd.org/downloads/openttd-releases/latest هي صفحة التنزيل الرسمية للمشروع | الرابط صار صفحة المشروع، واختبار يمنع أي رابط Play لا يخصّ Rockstar |
+| A34 | **فحص 1.16 الجديد قرأ تعليقاً وشرح نفسه كعيب** | أعلن FAIL بينما الكود سليم، لأن تعليقي يذكر الألعاب الأربع شارحاً أنها كانت خطأ | measured: `FAIL 1.16 … PRINCE, WOLF, DOOM, DUKE` مع أن البطاقة صحيحة، و`grep -n` أظهر أن الأسماء في سطر ٥٣ (تعليق) | `stripComments()` قبل مسح الادعاءات؛ والتشويهان ما زالا مصطادين |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -113,6 +120,12 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | pe | حذف حرّاس الاكتمال الثلاثة | FAIL ✔ |
 | pe | حذف فلتر `.dll` (بعد إصلاح الاختبار) | FAIL ✔ |
 | gate 1.15 | إرجاع `importRva = 0` · أو قاعدة PE32+ خاطئة | FAIL ✔ |
+| catalog | إعادة «Prince of Persia · Wolfenstein · Doom · Duke Nukem» للبطاقة | FAIL ✔ |
+| catalog | إعادة GTA إلى `arcade` | FAIL ✔ |
+| catalog | إعادة «١٫٣ كيلوبايت · ٦٠٠ مللي» | FAIL ✔ |
+| catalog | إعادة رابط `org.openttd.sdl` الميت | FAIL ✔ |
+| catalog | جعل Wolfenstein «جاهزة بلمسة» بدل «أنت تجلب الملفات» | FAIL ✔ |
+| gate 1.16 | ادعاء «2 ميغابايت» على قرص ١٫٤٤ | FAIL ✔ |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 

@@ -48,9 +48,14 @@ export const BUILTIN_IMAGES: MachineImage[] = [
     path: './images/dos-games.img',
     slot: 'fda',
     memoryMB: 64,
+    // What is ACTUALLY on the disk, verified by reading its root directory:
+    // KERNEL.SYS, COMMAND.COM, CONFIG.SYS, SNAKE.COM (1408 B), PONG.COM (2443 B),
+    // MENU.COM (784 B), AUTOEXEC.BAT. The old note promised Prince of Persia,
+    // Wolfenstein 3D, Doom and Duke Nukem 3D -- none of which are in the image, and
+    // none of which we could legally ship.
     note:
-      'ألعاب فعلية تعمل في ٦٤٠ كيلو من الذاكرة: Prince of Persia، Wolfenstein 3D، ' +
-      'Doom، Duke Nukem 3D — كلعبة جاهزة بلا ويندوز ولا تثبيت',
+      'ألعابنا: SNAKE وPONG، مع سطر أوامر DOS كامل — كلها في ٦٤٠ كيلو من الذاكرة. ' +
+      'ألعاب DOS التجارية تعمل أيضاً إن جلبت ملفاتها أنت (نُقلعها من قرصك).',
     builtin: true,
     size: 1474560,
   },
