@@ -285,6 +285,24 @@ function auditStatic() {
     );
   }
 
+  // 1.15 the PE inspector must locate imports through the data directory, not by a
+  // section NAME. Section order and naming are the linker's choice; the directory is the
+  // format's contract. The section-name path is allowed only as a documented fallback.
+  if (has('src/system/pe.ts')) {
+    const pe = read('src/system/pe.ts');
+    const usesDir = /importRva\s*=\s*dv\.getUint32\(dirStart \+ 8/.test(pe);
+    const hasFallback = /IDATA_NAMES/.test(pe) && /fallbackOff/.test(pe);
+    const pctPlusBase = /opt \+ \(is64 \? 112 : 96\)/.test(pe);
+    add(
+      '1.15',
+      'audit',
+      usesDir && hasFallback && pctPlusBase,
+      usesDir
+        ? `imports via data directory; PE32+/PE32 base ${pctPlusBase ? '112/96' : 'WRONG'}; fallback ${hasFallback ? 'documented' : 'missing'}`
+        : 'imports are still located by section name',
+    );
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the
