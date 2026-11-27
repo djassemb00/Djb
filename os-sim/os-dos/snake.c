@@ -85,7 +85,7 @@ static int collide(int x, int y) {
 __attribute__((section(".text.start"), noreturn)) void _start(void) {
   clear();
   goto_rc(1, 20);
-  print("SNAKE  -  arrows to move, Q to quit");
+  print("SNAKE  -  arrows to move, Q quits to the menu");
   draw_border();
   len = 3;
   body_x[0] = 8; body_y[0] = 9;
@@ -139,9 +139,10 @@ __attribute__((section(".text.start"), noreturn)) void _start(void) {
     body_y[0] = (unsigned char)hy;
     for (int i = 0; i < len; i++) put_rc(OY + body_y[i], OX + body_x[i], 'o');
   }
+  /* hand the screen back to whatever started us (MENU / COMMAND.COM) */
   goto_rc(24, 0);
   print("GAME OVER - score ");
   num((unsigned int)(len - 3) * 10);
-  print("  reboot to play again.");
+  __asm__ __volatile__("movw $0x4c00, %%ax\n\tint $0x21" : : : "ax");
   for (;;) __asm__ __volatile__("hlt");
 }

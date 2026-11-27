@@ -10,11 +10,14 @@
  *      program as the whole session.
  */
 import { useRef, useState } from 'react';
-import { AlertTriangle, AppWindow, CheckCircle2, FileWarning, Loader2, Play, Upload } from 'lucide-react';
+import { AlertTriangle, AppWindow, CheckCircle2, Download, FileWarning, Loader2, Play, Trash2, Upload } from 'lucide-react';
 import { describePE, inspectPE, type PEInfo } from '../system/pe';
 import { buildProgramDisk } from '../system/guest';
 import { useVM } from '../store/useVM';
 import { sfx } from '../system/sound';
+import { ProgramIcon } from '../components/ProgramIcon';
+import { usePrograms } from '../store/usePrograms';
+import { useLaunchProgram } from '../components/Desktop';
 
 type Row = {
   name: string;
@@ -36,12 +39,23 @@ const VERDICT_STYLE: Record<PEInfo['verdict'], { cls: string; icon: typeof Check
 
 const DOS_EXT = /\.(com|exe|bat)$/i;
 
+/** programs that ship inside the app (public/programs, built from os-dos/) */
+const CATALOG = [
+  { id: 'SNAKE', name: 'SNAKE', file: 'SNAKE.COM', desc: 'لعبة الثعبان — أسهم، Q للخروج' },
+  { id: 'PONG', name: 'PONG', file: 'PONG.COM', desc: 'بونغ ضد الحاسوب — W/S' },
+];
+
 export function AppsApp() {
   const ref = useRef<HTMLInputElement | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const launchProgram = useVM((s) => s.launchProgram);
+  const programs = usePrograms((s) => s.programs);
+  const install = usePrograms((s) => s.install);
+  const uninstall = usePrograms((s) => s.uninstall);
+  const { launch: launchInstalled, busyId } = useLaunchProgram();
+  const [installing, setInstalling] = useState<string | null>(null);
 
   const classify = (name: string, data: Uint8Array) => {
     const info = inspectPE(data);
@@ -86,6 +100,41 @@ export function AppsApp() {
     sfx.open();
   };
 
+  /** keep the program on the phone: from now on it has an icon like any app */
+  const installProgram = async (r: Row) => {
+    try {
+      setInstalling(r.name);
+      setError(null);
+      const [entry] = await install({ fileName: r.name, data: r.data, icon: null });
+      sfx.open();
+      setError(null);
+      // installing is not the same as opening: say what happened, then let them press it
+      setError(`تم تثبيت ${entry.name} — ستجده على الشاشة الرئيسية وفي قائمة التطبيقات`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInstalling(null);
+    }
+  };
+
+  /** install one of the programs we ship, straight from the app */
+  const installFromCatalog = async (c: (typeof CATALOG)[number]) => {
+    try {
+      setInstalling(c.file);
+      setError(null);
+      const res = await fetch(`./programs/${c.file}`);
+      if (!res.ok) throw new Error(`تعذّر تحميل ${c.file}`);
+      const data = new Uint8Array(await res.arrayBuffer());
+      const [entry] = await install({ fileName: c.file, data, icon: null });
+      sfx.open();
+      setError(`تم تثبيت ${entry.name} — اضغط أيقونته على الشاشة الرئيسية`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInstalling(null);
+    }
+  };
+
   const launch = async (r: Row) => {
     try {
       setBusy(true);
@@ -125,6 +174,61 @@ export function AppsApp() {
         </p>
       )}
 
+      <div className="launcher-section" style={{ marginTop: 4 }}>
+        جاهزة للتثبيت فوراً — كتبناها لهذا التطبيق
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {CATALOG.map((c) => {
+          const has = programs.some((p) => p.id === c.id);
+          return (
+            <button
+              key={c.id}
+              className="btn"
+              disabled={has || installing === c.file}
+              onClick={() => void installFromCatalog(c)}
+              title={c.desc}
+            >
+              {has ? <CheckCircle2 size={13} /> : installing === c.file ? <Loader2 size={13} className="spin" /> : <Download size={13} />}
+              {c.name}
+            </button>
+          );
+        })}
+      </div>
+      <p className="tiny muted" style={{ margin: '0 0 2px' }}>
+        أو ألقِ ملف <code>.exe</code> من جهازك بالزر في الأعلى.
+      </p>
+
+      {programs.length > 0 && (
+        <>
+          <div className="launcher-section" style={{ marginTop: 4 }}>
+            مثبّتة على هاتفك · {programs.length}
+          </div>
+          <div className="launcher-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))' }}>
+            {programs.map((p) => (
+              <div key={p.id} className="installed-tile">
+                <button
+                  className="launcher-app"
+                  onClick={() => void launchInstalled(p)}
+                  title={`${p.fileName} · ${(p.size / 1024).toFixed(0)} كيلو · فُتح ${p.launches} مرة`}
+                >
+                  <ProgramIcon program={p} size="lg" />
+                  <span className="tiny">{p.name}</span>
+                </button>
+                <button
+                  className="tile-x"
+                  onClick={() => void uninstall(p.id)}
+                  title="إزالة من الهاتف"
+                  aria-label={`إزالة ${p.name}`}
+                >
+                  <Trash2 size={11} />
+                </button>
+                {busyId === p.id && <span className="tile-busy" />}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {rows.length === 0 && (
         <div className="apps-empty">
           <p className="muted tiny" style={{ margin: 0 }}>
@@ -160,9 +264,20 @@ export function AppsApp() {
               </p>
             )}
             {r.route === 'dos-now' && (
-              <button className="btn primary" onClick={() => void launch(r)} disabled={busy}>
-                <Play size={13} /> شغّل الآن
-              </button>
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                <button className="btn primary" onClick={() => void launch(r)} disabled={busy}>
+                  <Play size={13} /> شغّل الآن
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => void installProgram(r)}
+                  disabled={!!installing}
+                  title="يُحفظ على الهاتف ويصبح أيقونة مثل تطبيقات أندرويد"
+                >
+                  {installing === r.name ? <Loader2 size={13} className="spin" /> : <Download size={13} />}
+                  ثبّت على الهاتف
+                </button>
+              </div>
             )}
           </div>
         );

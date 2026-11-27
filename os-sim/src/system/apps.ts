@@ -29,8 +29,8 @@ export interface AppMeta {
 export const APPS: AppMeta[] = [
   {
     id: 'apps',
-    name: 'تطبيقات الحاسوب',
-    desc: 'حلّل ملف .exe واعرف إن كان يعمل، وبأي مسار',
+    name: 'متجر البرامج',
+    desc: 'ثبّت برامج وألعاب .exe/.com على هاتفك كأي تطبيق أندرويد',
     icon: AppWindow,
     from: '#f0a24b',
     to: '#b45309',

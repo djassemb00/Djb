@@ -1,19 +1,67 @@
 import { useEffect, useRef, useState } from 'react';
-import { Power, RefreshCw, Search, Moon, Lock, BellOff, Wifi, Bluetooth, X } from 'lucide-react';
+import { Power, RefreshCw, Search, Moon, Lock, BellOff, Wifi, Bluetooth, X, PackagePlus } from 'lucide-react';
 import { APPS, APP_BY_ID } from '../system/apps';
 import { useOS } from '../store/useOS';
 import { AppIcon } from './AppIcon';
 import { cx } from '../system/cx';
 import { relativeTime } from '../system/hooks';
 import { sfx } from '../system/sound';
+import { ProgramIcon } from './ProgramIcon';
+import { usePrograms, type InstalledProgram } from '../store/usePrograms';
+import { useVM } from '../store/useVM';
+
+/**
+ * Launch an installed computer program the way a phone launches an app: the icon
+ * press is the whole interaction. The disk is read from IndexedDB, handed to the
+ * machine and the screen switches to the running program.
+ */
+export function useLaunchProgram() {
+  const diskOf = usePrograms((s) => s.diskOf);
+  const bump = usePrograms((s) => s.bumpLaunch);
+  const markBroken = usePrograms((s) => s.markBroken);
+  const launchDisk = useVM((s) => s.launchProgram);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const launch = async (p: InstalledProgram) => {
+    setBusyId(p.id);
+    try {
+      const disk = await diskOf(p.id);
+      if (!disk) {
+        markBroken(p.id);
+        return;
+      }
+      bump(p.id);
+      sfx.open();
+      launchDisk({ name: p.name, disk });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return { launch, busyId };
+}
 
 export function DesktopIcons() {
   const grid = useOS((s) => s.settings.grid);
   const open = useOS((s) => s.open);
   const sounds = useOS((s) => s.settings.sounds);
+  const programs = usePrograms((s) => s.programs);
+  const { launch, busyId } = useLaunchProgram();
 
   return (
     <div className={cx('icon-grid')} style={grid ? undefined : { display: 'flex', flexWrap: 'wrap', width: '100%', maxWidth: 460 }}>
+      {programs.map((p) => (
+        <button
+          key={p.id}
+          className={cx('desk-icon', busyId === p.id && 'busy')}
+          onClick={() => void launch(p)}
+          title={`${p.fileName} · ${(p.size / 1024).toFixed(0)} كيلو`}
+        >
+          <ProgramIcon program={p} />
+          <span>{p.name}</span>
+        </button>
+      ))}
+      <GetAppsTile />
       {APPS.filter((a) => a.desktop).map((app) => (
         <button
           key={app.id}
@@ -31,9 +79,39 @@ export function DesktopIcons() {
   );
 }
 
+/**
+ * The "store" tile a phone user expects on the home screen. Pressing it opens the
+ * app that installs computer programs — the whole path is three taps from a cold
+ * start: store tile → pick a .com/.exe → press its new icon.
+ */
+function GetAppsTile() {
+  const open = useOS((s) => s.open);
+  const programs = usePrograms((s) => s.programs);
+  return (
+    <button
+      className="desk-icon"
+      onClick={() => {
+        sfx.tap();
+        open({ appId: 'apps', width: 720, height: 540 });
+      }}
+      title="ثبّت برامج حاسوب على هاتفك"
+    >
+      <div className="app-tile get-apps">
+        <PackagePlus size={23} />
+      </div>
+      <span>{programs.length ? 'إضافة برنامج' : 'متجر البرامج'}</span>
+    </button>
+  );
+}
+
 export function Launcher({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState('');
   const open = useOS((s) => s.open);
+  const programs = usePrograms((s) => s.programs);
+  const { launch, busyId } = useLaunchProgram();
+  const installed = programs.filter(
+    (p) => !q.trim() || p.name.toUpperCase().includes(q.trim().toUpperCase()) || p.fileName.includes(q.trim()),
+  );
   const filtered = APPS.filter(
     (a) => a.name.includes(q.trim()) || a.desc.includes(q.trim()) || a.id.includes(q.trim().toLowerCase()),
   );
@@ -60,6 +138,27 @@ export function Launcher({ onClose }: { onClose: () => void }) {
           </button>
         )}
       </div>
+
+      {installed.length > 0 && (
+        <>
+          <div className="launcher-section">برامج الحاسوب المثبّتة</div>
+          <div className="launcher-grid">
+            {installed.map((p) => (
+              <button
+                key={p.id}
+                className={cx('launcher-app', busyId === p.id && 'busy')}
+                onClick={() => {
+                  void launch(p);
+                  onClose();
+                }}
+              >
+                <ProgramIcon program={p} size="lg" />
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="launcher-section">كل التطبيقات</div>
       <div className="launcher-grid">
