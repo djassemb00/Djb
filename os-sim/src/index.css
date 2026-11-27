@@ -1,0 +1,15 @@
+
+/* thermal governor card + OEM keep-alive checklist */
+.gov-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.keep-alive {
+  margin: 6px 0 0;
+  padding-inline-start: 18px;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--muted, #9aa0a6);
+}

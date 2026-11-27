@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Download,
+  Flame,
   Gauge,
   HardDrive,
   Keyboard,
@@ -13,6 +14,7 @@ import {
   Power,
   RotateCcw,
   Save,
+  Shield,
   Terminal,
   Upload,
   Usb,
@@ -22,6 +24,8 @@ import { deleteDisk, loadDisk, saveDisk } from '../system/diskStore';
 import { BUILTIN_IMAGES, useVM, type MachineImage } from '../store/useVM';
 import { sfx } from '../system/sound';
 import { cx } from '../system/cx';
+import { detectDevice } from '../system/deviceProfile';
+import { readGovernor, thermalLabel, type GovernorReading } from '../system/thermal';
 
 /** size of the NovaFS IDE disk handed to the guest (NovaDesk only) */
 const NOVA_DATA_BYTES = 4 * 1024 * 1024;
@@ -93,6 +97,27 @@ export function MachineView() {
   /* ---------------- boot the machine ---------------- */
   /** snapshots already written in this session, so we save one per guest */
   const snapshotSaved = useRef<Set<string>>(new Set());
+  const device = useRef(detectDevice()).current;
+  const [gov, setGov] = useState<GovernorReading | null>(null);
+
+  // Ask the platform how hot it is, then slow the guest down before Android
+  // decides to throttle everything for us.
+  useEffect(() => {
+    if (screen !== 'machine') return;
+    let alive = true;
+    const tick = async () => {
+      const r = await readGovernor();
+      if (!alive) return;
+      setGov(r);
+      vmRef.current?.setThrottle(r.throttle);
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 10000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [screen]);
 
   const boot = useCallback(async () => {
     // v86 injects a text-mode <div> and a <canvas> into this element.
@@ -558,6 +583,44 @@ export function MachineView() {
             hidden
             onChange={onFile}
           />
+
+          <div className="side-title" style={{ marginTop: 14 }}>
+            <Flame size={14} /> حاكم الموارد
+          </div>
+          <div className="gov-card">
+            <div className="row between">
+              <span className="muted tiny">الحرارة</span>
+              <b>{gov ? thermalLabel(gov) : '…'}</b>
+            </div>
+            <div className="row between">
+              <span className="muted tiny">السرعة</span>
+              <b>{gov ? `${Math.round(gov.throttle * 100)}%` : '…'}</b>
+            </div>
+            {gov?.battery !== null && gov !== null && (
+              <div className="row between">
+                <span className="muted tiny">البطارية</span>
+                <b>
+                  {gov.battery}%{gov.charging ? ' ⚡' : ''}
+                </b>
+              </div>
+            )}
+            <p className="tiny muted" style={{ marginTop: 6 }}>
+              {gov?.reason ?? 'جارٍ القراءة…'}
+            </p>
+          </div>
+
+          {device.vendor === 'honor' && (
+            <>
+              <div className="side-title" style={{ marginTop: 14 }}>
+                <Shield size={14} /> إعدادات HONOR المطلوبة
+              </div>
+              <ol className="keep-alive">
+                {device.keepAlive.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ol>
+            </>
+          )}
 
           <div className="side-title" style={{ marginTop: 14 }}>
             <Terminal size={14} /> وحدة التحكم (COM1)

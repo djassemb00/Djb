@@ -47,6 +47,8 @@ export interface VMApi {
   getDataDisk: () => Uint8Array | null;
   destroy: () => void;
   getState: () => VMState;
+  /** slow the guest down (1 = full speed). Used by the thermal governor. */
+  setThrottle: (factor: number) => void;
   /** resume an exported state (v86 save_state) without rebuilding the machine */
   restoreState: (state: ArrayBuffer) => Promise<void>;
   /** low-level handle, exposed for the toolkit (state snapshots, screenshots…) */
@@ -64,6 +66,11 @@ export function createVM(opts: VMOptions): VMApi {
   const slot = opts.slot ?? 'fda';
   let state: VMState = 'starting';
   let serialText = '';
+  // throttle: when below 1 we let the CPU run only part of the time. Stopping and
+  // restarting the emulator is the only portable lever v86 gives us, so we hold
+  // each duty cycle long enough (120 ms of 200) that the guest stays smooth.
+  let throttleTimer: number | null = null;
+  let throttleFactor = 1;
 
   // The guest's own file system lives on an IDE disk. v86 mirrors writes into
   // this ArrayBuffer, so we can hand the bytes back as a downloadable image.
@@ -168,6 +175,36 @@ export function createVM(opts: VMOptions): VMApi {
       emulator.keyboard_send_scancodes([0x1c, 0x9c]); // Enter / Enter-release
     },
     sendScancodes: (codes) => emulator.keyboard_send_scancodes(codes),
+    setThrottle: (factor) => {
+      const f = Math.min(1, Math.max(0.1, factor));
+      if (f === throttleFactor) return;
+      throttleFactor = f;
+      if (throttleTimer !== null) {
+        window.clearInterval(throttleTimer);
+        throttleTimer = null;
+      }
+      if (f >= 1) {
+        void emulator.run();
+        return;
+      }
+      const period = 200;
+      const active = Math.round(period * f);
+      let on = true;
+      try {
+        void emulator.run();
+      } catch {
+        /* already running */
+      }
+      throttleTimer = window.setInterval(() => {
+        on = !on;
+        try {
+          if (on) void emulator.run();
+          else void emulator.stop();
+        } catch {
+          /* the machine may be starting or already gone */
+        }
+      }, on ? active : period - active);
+    },
     restoreState: async (state) => {
       await emulator.restore_state(state);
       setState('running');
@@ -185,6 +222,10 @@ export function createVM(opts: VMOptions): VMApi {
       return new Uint8Array(src);
     },
     destroy: () => {
+      if (throttleTimer !== null) {
+        window.clearInterval(throttleTimer);
+        throttleTimer = null;
+      }
       try {
         void emulator.destroy();
       } catch {
