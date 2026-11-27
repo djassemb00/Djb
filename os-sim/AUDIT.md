@@ -37,6 +37,8 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #6 | 2026-11-27 | ٢١ فحصاً | نظيفة | إغلاق A12-A16 |
 | #8 | 2026-11-27 | ٢١ فحصاً | نظيفة — فوسّعت الحلقة إلى **المنطق** لا الإعدادات فقط | ٩ ملفات · ٥٢ اختباراً |
 | #9 | 2026-11-27 | ٢٢ فحصاً | نظفت بعد إغلاق A17-A20 | +`tests/diskStore.test.ts` (٨) و`tests/install.test.ts` (٤) · فحص 1.13 جديد · ٦٤ اختباراً |
+| #10 | 2026-11-27 | ٢٢ فحصاً | نظيفة — فوسّعت الحلقة إلى **هندسة القرص** | ٤٥ اختباراً سابقاً لم تلمس `buildProgramDisk` |
+| #11 | 2026-11-27 | ٢٤ فحصاً | نظفت بعد إغلاق A21-A25 | +`tests/fat12-geometry.test.ts` (١٢) · فحص 1.14 جديد · ٧٦ اختباراً · والقرص المُصلَح **يُقلع فعلاً** في `tests/guest.test.ts` |
 
 ## العيوب المُغلقة
 
@@ -63,6 +65,12 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A18 | `saveDisk` **لا يستطيع الإبلاغ عن الفشل** | `tx(...).then(() => undefined)` ينجح في كل الحالات: لا IndexedDB، حصة ممتلئة، ترانزاكشن مُلغى — كلها تبدو كتابة ناجحة | measured: `node tools/gate.mjs` لم يكن يرى الفرق، و`src/system/diskStore.ts:69` كان `.then(() => undefined)`؛ و`tests/diskStore.test.ts` «reports a save that could not happen» يفشل على النسخة القديمة | `saveDisk` يُرجع `boolean` حقيقياً + `gate 1.13` |
 | A19 | **`gate 1.13` نفسه لم يكتشف `void saveDisk`** | نسختي الأولى قرأت السطر فقط، فلم ترَ `void state.then((buf) => saveDisk(...))` | measured بالمصيدة: ٤ تشويهات (A: void · B: سلسلة تتجاهل النتيجة · C: callback بلا ربط · D: await بلا استخدام) — A/B/D اصطيدت، C تحتاج `tsc` | أُعيد كتابة 1.13 على نطاق **الجملة** لا السطر؛ وC تُمسَك في `4.1` (TS2552)، وهذا موثّق كتقسيم عمل لا كنجاح كامل |
 | A20 | **`void saveDisk` في حفظ اللقطة وفي إعادة التشغيل** — موضعان لم أرهما | اللقطة تفشل بصمت (العودة إلى لقطة أقدم)، و«إعادة التشغيل» تُعيد بناء القرص من التخزين فتُلقي ما كتبه الضيف للتوّ | measured: كشفهما `gate 1.13` بعد إعادة كتابته (`MachineView.tsx:229` و`:299`) | الإثنان صارا يفحصان الناتج؛ وإعادة التشغيل **تُلغى** عند فشل الحفظ مع رسالة صريحة |
+| A21 | **`TOTAL_CLUSTERS` كان ٢٨٤٧ والقرص يحمل ١٤٢٣** | `FLOPPY_MAX_FILE` = ١٫٣٩ ميغا بدل ٠٫٦٩، فأي برنامج بين الحجمين **يُقبل ثم يُكتب خارج الصورة بصمت** (‏`TypedArray.set` يقتطع ولا يرمي) | measured: `node -e` → «real clusters: 1423.5 · code claims: 2847»؛ والسبب قسمة عدّ **قطاعات** على قطاعات-لكل-كتلة مرة ثانية | `MAX_CLUSTER` مشتق الآن من `SECTORS*SECTOR - DATA_START`، و`gate 1.14` يرفض أي قيمة غير مشتقة |
+| A22 | **لا فحص للمجموع التراكمي** | ملفات كل واحد منها مشروع، ومجموعها يتجاوز القرص، تُكتب خارج الصورة | measured: ٣ ملفات × ٦٠٠ كيلو → `offset is out of bounds` من V8، أي أن الكتابة كانت خارج المصفوفة | `nextCluster + clusters - 1 > MAX_CLUSTER` يرمي رسالة عربية؛ واختبار «legal files add up to more than the disk» |
+| A23 | **الملف رقم ٢٢٥ يُكتب على `DATA_START`** | الدليل الجذري يتّسع لـ٢٢٤ مدخلاً؛ الكتابة الزائدة تقع على أول بايت من البيانات = **فساد صامت للملف الأول** | measured: ٢٣٠ ملفاً → `spilled entry at 16896 | wrote into data: true` | `files.length > ROOT_ENTRIES` يرمي قبل أي كتابة |
+| A24 | **اختبار العقد كان يقرأ أرقامه من نفسه** | تغيير `COMMAND.COM` إلى كتلة ٥٧ في `guest.ts` **لم يُسقط أي اختبار** | measured بالمصيدة: mutation 4 نجح (`Tests 9 passed`) لأن الاختبار يحمل نسخة من الأرقام | الاختبار يستخرج `name/cluster/size` من `guest.ts` ويقارنها بالدليل الجذري داخل الصورة |
+| A25 | `buildProgramDisk` غير قابل للاختبار خارج المتصفح | `fetch('./images/…')` يفشل في Node بـ`ERR_INVALID_URL` → العيوب الثلاثة أعلاه عاشت بلا اختبار | measured: تشغيل الاختبار أول مرة → `Serialized Error: { code: 'ERR_INVALID_URL' }` | `readBaseImage()` يحاول `fetch` ثم `node:fs` |
+| A26 | هل «١٫٢٨ ميغا حرة» في رسالة الخطأ **قابلة للتحقيق**؟ | لو كانت مبالغة لكان تطبيقنا يكذب على نفسه | measured بالبسط الثنائي (bisection على أحجام حقيقية): أكبر برنامج قابل للتثبيت = 1 340 314 بايت = **١٫٢٧٨ ميغا**؛ والحجز المحسوب 1 341 440 (متحفّظ بكتلة واحدة لأن AUTOEXEC الحقيقي ١٤٢ بايت لا ٢٠٤٨) | أُضيف اختبار «the advertised free space is real»: يبني عند الحدّ المقيس ويرفض ما فوقه |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -86,6 +94,14 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | 1.13 | (نصّياً) callback بلا ربط — تُمسَك في `4.1` بـ`TS2552` | FAIL ✔ عبر tsc |
 | diskStore | إرجاع `true` دائماً بدل `result !== null` | FAIL ✔ |
 | install | إزالة فحص `hasRoomFor` أو فحص `stored` | FAIL ✔ |
+| 1.14 | إعادة `(SECTORS - DATA_START/SECTOR)/2` (٢٨٤٧) | FAIL ✔ |
+| 1.14 | كتابة `MAX_CLUSTER = 1424` كرقم حرفي | FAIL ✔ |
+| 1.14 | `+ 1` → `+ 2` (خطأ بمقدار واحد) | FAIL ✔ |
+| fat12 | حذف فحص `files.length > ROOT_ENTRIES` | FAIL ✔ |
+| fat12 | حذف فحص المجموع التراكمي | FAIL ✔ |
+| fat12 | إعادة صيغة `TOTAL_CLUSTERS` القديمة | FAIL ✔ (٤ اختبارات) |
+| fat12 | بناء برنامج أكبر من المساحة الحرة المعلنة | FAIL ✔ |
+| guest | إزاحة `COMMAND.COM` كتلة واحدة | FAIL ✔ (بعد إصلاح الاختبار) |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 

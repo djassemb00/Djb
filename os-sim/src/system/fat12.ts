@@ -45,10 +45,33 @@ const ROOT_SECTORS = (ROOT_ENTRIES * 32) / SECTOR; // 14
 const ROOT_START = (RESERVED + FAT_COUNT * FAT_SECTORS) * SECTOR; // 9728
 const DATA_START = ROOT_START + ROOT_SECTORS * SECTOR; // 16896
 const CLUSTER_BYTES = SPC * SECTOR;
-const TOTAL_CLUSTERS = (SECTORS - (DATA_START / SECTOR)) / SPC; // 2847
+/** data sectors after the boot/FAT/root area, divided by sectors per cluster */
+const DATA_SECTORS = SECTORS - DATA_START / SECTOR; // 2867
+/**
+ * Cluster numbers available for file data.
+ *
+ * This used to be `(SECTORS - DATA_START/SECTOR) / SPC` = 2847: it divided by
+ * sectors-per-cluster while DATA_SECTORS was already a SECTOR count, so the real
+ * number is 1423. The wrong value made FLOPPY_MAX_FILE 1.39 MB instead of 0.69 MB,
+ * and a program between the two sizes was accepted and then written past the end of
+ * the image -- silently, because TypedArray.set swallows that by design.
+ * Geometric floor: the last cluster must still fit inside the image.
+ */
+export const TOTAL_CLUSTERS = Math.floor(DATA_SECTORS / SPC); // 1423
+/**
+ * Highest cluster NUMBER the geometry allows.
+ *
+ * DATA_START / SECTOR = 33 data sectors-before-data... precisely: data starts at sector
+ * 33, so cluster n begins at byte DATA_START + (n-2)*1024. The image ends at 1474560, so
+ * the last cluster that fits is floor((1474560-16896)/1024) + 1 = 1424. Writing cluster
+ * 1425 or above lands outside the image.
+ */
+export const MAX_CLUSTER = Math.floor((SECTORS * SECTOR - DATA_START) / CLUSTER_BYTES) + 1; // 1424
+/** usable clusters = 2..MAX_CLUSTER inclusive */
+export const USABLE_CLUSTERS = MAX_CLUSTER - 1; // 1423
 
-/** largest file that still fits in one floppy */
-export const FLOPPY_MAX_FILE = (TOTAL_CLUSTERS - 1) * CLUSTER_BYTES;
+/** largest file that still fits next to nothing else on one floppy */
+export const FLOPPY_MAX_FILE = (USABLE_CLUSTERS - 1) * CLUSTER_BYTES; // 1_456_640
 
 function sanitize(name: string, ext: string): { base: string; ext: string } {
   const clean = (s: string) =>
@@ -133,12 +156,30 @@ export function buildFloppy(opts: FloppyOptions): Uint8Array {
   const autoexec = new TextEncoder().encode(script);
   files.push({ name: 'AUTOEXEC.BAT', data: autoexec });
 
+  // The root directory holds ROOT_ENTRIES files and nothing more; a 225th write used to
+  // land on ROOT_START + 224*32 == DATA_START, i.e. straight into the data area, quietl
+  // corrupting cluster 2. A real floppy is full at 224 entries, so say that.
+  if (files.length > ROOT_ENTRIES) {
+    throw new Error(
+      `ملفات كثيرة جداً على قرص مرن: ${files.length} والدليل الجذري يتّسع لـ${ROOT_ENTRIES} فقط`,
+    );
+  }
+
   let rootSlot = 0;
   for (const f of files) {
     if (f.data.length > FLOPPY_MAX_FILE) {
       throw new Error(`الملف كبير جداً على قرص مرن: ${f.name}`);
     }
     const clusters = Math.max(1, Math.ceil(f.data.length / CLUSTER_BYTES));
+    // running total, not a per-file check: several files can each be legal and still
+    // run past the end of the disk together
+    if (nextCluster + clusters - 1 > MAX_CLUSTER) {
+      const wroteMb = ((nextCluster - 2) * CLUSTER_BYTES / 1048576).toFixed(2);
+      throw new Error(
+        `القرص المرن امتلأ: الكتلة التالية ${nextCluster} تتجاوز آخر كتلة ${MAX_CLUSTER} ` +
+          `(المكتوب ${wroteMb} ميغا، والملف التالي ${(f.data.length / 1048576).toFixed(2)} ميغا)`,
+      );
+    }
     const first = nextCluster;
     for (let i = 0; i < clusters; i++) {
       setFatEntry(fat, nextCluster, i === clusters - 1 ? 0xfff : nextCluster + 1);

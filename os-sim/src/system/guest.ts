@@ -32,11 +32,30 @@ export interface DosProgram {
 
 let cache: { system: { name: string; data: Uint8Array }[]; boot: Uint8Array } | null = null;
 
+/**
+ * Read the shipped FreeDOS image.
+ *
+ * In the browser this is a plain fetch. In Node (tests, CI, the gate's probes) relative
+ * URLs are invalid, so fall back to the file system before giving up -- without this,
+ * `buildProgramDisk` could not be tested at all outside a browser, which is how its
+ * THREE geometry bugs survived.
+ */
+async function readBaseImage(): Promise<Uint8Array> {
+  if (typeof fetch === 'function') {
+    try {
+      const res = await fetch('./images/freedos-boot.img');
+      if (res.ok) return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      /* not a browser, or offline: try the file system */
+    }
+  }
+  const { readFileSync } = await import('node:fs');
+  return new Uint8Array(readFileSync(new URL('../../public/images/freedos-boot.img', import.meta.url)));
+}
+
 async function loadBase() {
   if (cache) return cache;
-  const res = await fetch('./images/freedos-boot.img');
-  if (!res.ok) throw new Error('تعذّر تحميل ملفات نظام DOS المرفقة');
-  const boot = new Uint8Array(await res.arrayBuffer());
+  const boot = await readBaseImage();
   const system = SYSTEM_FILES.map((f) => {
     const off = DATA_START + (f.cluster - 2) * CLUSTER;
     return { name: f.name, data: boot.slice(off, off + f.size) };

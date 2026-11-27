@@ -251,6 +251,40 @@ function auditStatic() {
       : 'saveDisk discards its own result',
   );
 
+  // 1.14 geometry must be derived from the image, never restated. A wrong cluster count
+  // is syntactically perfect TypeScript and only shows up as silent corruption, so this
+  // recomputes the numbers from fat12.ts's own constants and compares them with the
+  // shipped image's size.
+  if (has('src/system/fat12.ts') && has('public/images/freedos-boot.img')) {
+    const fat = read('src/system/fat12.ts');
+    const num = (re) => Number(fat.match(re)?.[1] ?? NaN);
+    const sectors = num(/const SECTORS = (\d+);/);
+    const sector = num(/const SECTOR = (\d+);/);
+    const rootStart = num(/const ROOT_START = [^;]*;\s*\/\/\s*(\d+)/);
+    const rootSectors = num(/const ROOT_SECTORS = [^;]*;\s*\/\/\s*(\d+)/);
+    const dataStart = rootStart + rootSectors * sector; // 9728 + 14*512 = 16896
+    // Require the derived form, not just the right answer: a literal 1424 would pass a
+    // value check while hiding the factor-of-2 arithmetic that produced 2847 before.
+    const derived = /export const MAX_CLUSTER = Math\.floor\(\(SECTORS \* SECTOR - DATA_START\) \/ CLUSTER_BYTES\) \+ 1;/.test(fat);
+    const maxCluster = derived ? Math.floor((sectors * sector - dataStart) / 1024) + 1 : NaN;
+    const imgSize = statSync(join(ROOT, 'public/images/freedos-boot.img')).size;
+    // the last cluster must still fit inside the image, and the image must be a 1.44 MB floppy
+    // The image is 33 sectors + 1423 clusters of 2 sectors = 1433.5 clusters: the last
+    // HALF cluster is real addressable space that no cluster index may cover, so the end
+    // of the last legal cluster is 512 bytes short of the image. Asserting equality here
+    // would have been my own arithmetic error, not a code defect.
+    const lastClusterEnd = dataStart + (maxCluster - 2) * 1024 + 1024;
+    const slack = imgSize - lastClusterEnd;
+    add(
+      '1.14',
+      'audit',
+      imgSize === sectors * sector && slack === 512 && maxCluster === 1424,
+      derived
+        ? `image=${imgSize} MAX_CLUSTER=${maxCluster} lastEnd=${lastClusterEnd} slack=${slack}B (derived)`
+        : 'MAX_CLUSTER is not derived from SECTORS/SECTOR/DATA_START',
+    );
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the
