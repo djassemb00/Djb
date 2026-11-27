@@ -13,7 +13,7 @@
 import { useMemo, useState } from 'react';
 import { Cpu, Download, Gamepad2, Info, Loader2, Smartphone } from 'lucide-react';
 import { CATALOG, LANE_LABEL, type CatalogEntry } from '../system/catalog';
-import { generateProfile, iniFileName, PREREQUISITES, toIni } from '../system/winePrefix';
+import { containerFileName, generateProfile, PREREQUISITES, SOURCES, toContainerJson } from '../system/winePrefix';
 import { sfx } from '../system/sound';
 
 function download(name: string, text: string) {
@@ -38,12 +38,12 @@ export function GameSetupApp() {
     [selected, is32, dx9],
   );
   const lane = LANE_LABEL[selected.lane];
-  const ini = useMemo(() => toIni(profile), [profile]);
+  const json = useMemo(() => toContainerJson(profile), [profile]);
 
   const save = () => {
     setSaving(true);
     sfx.tap();
-    download(iniFileName(selected.title), ini);
+    download(containerFileName(selected.title), json);
     window.setTimeout(() => setSaving(false), 700);
   };
 
@@ -140,9 +140,25 @@ export function GameSetupApp() {
       </details>
 
       <details className="setup-details">
-        <summary className="tiny">معاينة الملف</summary>
+        <summary className="tiny">
+          <Info size={12} /> من أين تأتي المكوّنات؟
+        </summary>
+        <ul className="tiny">
+          {SOURCES.map((s) => (
+            <li key={s.url}>
+              <a href={s.url} target="_blank" rel="noreferrer noopener" dir="ltr">
+                {s.name}
+              </a>{' '}
+              — {s.note}
+            </li>
+          ))}
+        </ul>
+      </details>
+
+      <details className="setup-details">
+        <summary className="tiny">معاينة الملف (JSON الذي يقرأه Winlator فعلاً)</summary>
         <pre className="setup-ini" dir="ltr">
-          {ini}
+          {json}
         </pre>
       </details>
 
