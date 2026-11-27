@@ -14,6 +14,14 @@ export interface MachineImage {
   size?: number;
   /** in-memory disk (a program the user dropped in this session) */
   bytes?: Uint8Array;
+  /**
+   * ٥-٢: the boot floppy, when `bytes` is only the DATA volume. A FAT16 volume cannot boot,
+   * so a program too big for a floppy arrives as two images: a small boot floppy in `bytes`
+   * (mounted at the slot above) and the FAT16 volume here (mounted as the first fixed disk).
+   */
+  bootBytes?: Uint8Array;
+  /** size of the FAT16 volume, when this image carries one */
+  dataBytes?: number;
 }
 
 /** Third-party guests are real OSes written by others: name the licence so the
@@ -89,6 +97,12 @@ interface VMStore {
   setActiveImage: (id: string) => void;
   /** load a dropped program as the boot disk and switch to the machine */
   launchProgram: (p: { name: string; disk: Uint8Array }) => void;
+  /**
+   * ٥-٢: launch a program that does not fit on a floppy. The boot floppy and the FAT16
+   * volume travel together -- the floppy boots, the volume is the first fixed disk -- so
+   * they enter the list as one entry, not two.
+   */
+  launchProgramWithVolume: (p: { name: string; boot: Uint8Array; volume: Uint8Array }) => void;
   addUserImage: (img: MachineImage) => void;
   removeUserImage: (id: string) => void;
 }
@@ -117,6 +131,34 @@ export const useVM = create<VMStore>()(
           userImages: [
             ...s.userImages.filter((i) => i.id !== id),
             { id, name, path: `mem:${id}`, slot: 'fda', memoryMB: 64, note: 'برنامجك أنت', builtin: false, bytes: disk },
+          ],
+          activeImageId: id,
+          booted: false,
+          screen: 'machine',
+        }));
+      },
+      launchProgramWithVolume: ({ name, boot, volume }) => {
+        const id = `prog-${Date.now().toString(36)}`;
+        /*
+         * `bytes` stays the BOOT floppy so any existing caller that only knows `bytes` still
+         * boots the right thing, and the volume rides alongside in `bootBytes`/`dataBytes`.
+         * MachineView reads bootBytes first: when it is present, `bytes` is the volume.
+         */
+        set((s) => ({
+          userImages: [
+            ...s.userImages.filter((i) => i.id !== id),
+            {
+              id,
+              name,
+              path: `mem:${id}`,
+              slot: 'fda',
+              memoryMB: 64,
+              note: 'برنامجك أنت — قرص صلب FAT16',
+              builtin: false,
+              bytes: volume,
+              bootBytes: boot,
+              dataBytes: volume.byteLength,
+            },
           ],
           activeImageId: id,
           booted: false,

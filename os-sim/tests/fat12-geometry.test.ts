@@ -207,10 +207,17 @@ describe('the FreeDOS system-file contract', () => {
     const fits = await buildProgramDisk({ name: 'FITS.EXE', data: new Uint8Array(exactFree - 2048) });
     expect(fits.length).toBe(SECTORS * SECTOR);
 
-    // and one that exceeds it must be refused with a message, not corrupt the disk
+    /*
+     * And one that exceeds it must be refused with a message, not corrupt the disk.
+     *
+     * The message used to end "the bigger programs need a hard disk (the next step)".
+     * ٥-٢ wrote that hard disk, so the promise became a lie in the other direction: it told
+     * the user a feature was missing that now exists. The check is that the refusal names the
+     * floppy's limit and the route out of it -- not that it repeats an old promise.
+     */
     await expect(
       buildProgramDisk({ name: 'TOOBIG.EXE', data: new Uint8Array(exactFree + CLUSTER_BYTES) }),
-    ).rejects.toThrow(/البرامج الأكبر|امتلأ/);
+    ).rejects.toThrow(/FAT16/);
   });
 
   it('the AUTOEXEC it writes actually names the program', async () => {

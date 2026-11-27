@@ -12,7 +12,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { deleteDisk, hasRoomFor, loadDisk, saveDisk } from '../system/diskStore';
-import { buildProgramDisk } from '../system/guest';
+import { buildProgramDisk, buildProgramSet } from '../system/guest';
+import { encodeBootSet } from '../system/fat16';
 
 export interface InstalledProgram {
   /** stable key: the program's 8.3 base name, upper-cased */
@@ -101,7 +102,19 @@ export const usePrograms = create<ProgramsStore>()(
           // Two gates before the entry is allowed into the list:
           //   1. is there room at all? (a 4 MB disk on a full phone is a silent no-op)
           //   2. did the write actually land? saveDisk now reports that.
-          const disk = await buildProgramDisk({ name: fileName, data });
+          /*
+           * ٥-٢: a program too big for a floppy is installed on a FAT16 volume, not refused.
+           * The two images (boot floppy + volume) are stored as ONE record so a program is
+           * still one icon and one uninstall; `decodeBootSet` tells the launcher that what it
+           * loaded is a pair.
+           */
+          let disk: Uint8Array;
+          try {
+            disk = await buildProgramDisk({ name: fileName, data });
+          } catch {
+            const set = await buildProgramSet({ name: fileName, data });
+            disk = encodeBootSet(set.boot, set.disk);
+          }
           if (!(await hasRoomFor(disk.byteLength))) {
             throw new Error('لا توجد مساحة كافية في المتصفح لتثبيت هذا البرنامج');
           }

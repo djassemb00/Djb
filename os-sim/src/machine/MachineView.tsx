@@ -19,6 +19,7 @@ import {
   Upload,
   Usb,
 } from 'lucide-react';
+import { decodeBootSet } from '../system/fat16';
 import { createVM, loadImage, type VMApi, type VMState } from '../system/vm';
 import { deleteDisk, loadDisk, saveDisk } from '../system/diskStore';
 import { BUILTIN_IMAGES, useVM, type MachineImage } from '../store/useVM';
@@ -167,8 +168,24 @@ export function MachineView() {
     setLoadPct(0);
     setError(null);
     try {
-      // a dropped program carries its disk in memory: nothing to fetch
-      const image = active.bytes ?? (await loadImage(active.path, setLoadPct));
+      /*
+       * A dropped program carries its disk in memory: nothing to fetch.
+       *
+       * ٥-٢ gives a big program TWO disks: a boot floppy and a FAT16 volume, because a FAT16
+       * volume cannot be the boot disk (its MBR has no boot code, so SeaBIOS answers "Boot
+       * failed: not a bootable disk"). The floppy boots; the volume is the first fixed disk.
+       * An INSTALLED program persisted the pair as one tagged record, so decode it here and
+       * let the rest of this function see a plain boot image plus, when present, its volume.
+       */
+      let image = active.bytes ?? (await loadImage(active.path, setLoadPct));
+      let volume: Uint8Array | undefined = active.bootBytes ? active.bytes : undefined;
+      {
+        const pair = decodeBootSet(image);
+        if (pair) {
+          image = pair.boot;
+          volume = pair.volume;
+        }
+      }
       const isNovaDesk = active.id === 'novadesk';
 
       // Fast path: resume a guest from its snapshot instead of cold-booting it.
@@ -207,9 +224,11 @@ export function MachineView() {
         image,
         slot: active.slot,
         memoryMB: active.memoryMB,
-        // NovaDesk ships NovaFS on an IDE disk so files survive a reboot
-        dataDiskBytes: isNovaDesk ? NOVA_DATA_BYTES : 0,
-        dataDisk: savedDisk ?? undefined,
+        // NovaDesk ships NovaFS on an IDE disk so files survive a reboot; a launched
+        // program brings its own FAT16 volume, which is already on disk in memory
+        dataDiskBytes: isNovaDesk ? NOVA_DATA_BYTES : (volume?.byteLength ?? active.dataBytes ?? 0),
+        // a launched program's own volume wins over anything saved: it is not NovaFS
+        dataDisk: volume ?? savedDisk ?? undefined,
         onSerial: pushSerial,
         onState: setVmState,
       });

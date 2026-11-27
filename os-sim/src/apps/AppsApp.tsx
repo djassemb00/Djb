@@ -12,7 +12,7 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, AppWindow, CheckCircle2, Download, FileWarning, Loader2, Play, Trash2, Upload } from 'lucide-react';
 import { describePE, inspectPE, type PEInfo } from '../system/pe';
-import { buildProgramDisk } from '../system/guest';
+import { buildProgramDisk, buildProgramSet } from '../system/guest';
 import { adviseRoute } from '../system/routes';
 import { CATALOG, LANE_LABEL, needsExternalInstall } from '../system/catalog';
 import { useVM } from '../store/useVM';
@@ -53,6 +53,7 @@ export function AppsApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const launchProgram = useVM((s) => s.launchProgram);
+  const launchProgramWithVolume = useVM((s) => s.launchProgramWithVolume);
   const programs = usePrograms((s) => s.programs);
   const install = usePrograms((s) => s.install);
   const uninstall = usePrograms((s) => s.uninstall);
@@ -141,9 +142,25 @@ export function AppsApp() {
     try {
       setBusy(true);
       setError(null);
-      const disk = await buildProgramDisk({ name: r.name, data: r.data });
+      /*
+       * ٥-٢: try the floppy first, because it is the path that is proven and it needs one
+       * image instead of two. A program bigger than a floppy cannot go on one at all, and
+       * before ٥-٢ the answer was an error message telling the user to wait for "the next
+       * step". That step is done: those programs now run from a 32 MB FAT16 volume.
+       */
+      let disk: Uint8Array | null = null;
+      try {
+        disk = await buildProgramDisk({ name: r.name, data: r.data });
+      } catch {
+        disk = null; // too big for a floppy: fall through to the volume
+      }
       sfx.open();
-      launchProgram({ name: r.name, disk });
+      if (disk) {
+        launchProgram({ name: r.name, disk });
+      } else {
+        const set = await buildProgramSet({ name: r.name, data: r.data });
+        launchProgramWithVolume({ name: r.name, boot: set.boot, volume: set.disk });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
