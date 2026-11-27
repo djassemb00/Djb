@@ -10,6 +10,7 @@ import { AboutApp } from './AboutApp';
 import { PCEmuApp } from './PCEmuApp';
 import { AppsApp } from './AppsApp';
 import { GameSetupApp } from './GameSetupApp';
+import { MeasureApp } from './MeasureApp';
 
 export function AppRenderer({ appId }: { appId: AppId; winId: string }) {
   switch (appId) {
@@ -33,6 +34,8 @@ export function AppRenderer({ appId }: { appId: AppId; winId: string }) {
       return <AppsApp />;
     case 'setup':
       return <GameSetupApp />;
+    case 'measure':
+      return <MeasureApp />;
     case 'about':
       return <AboutApp />;
     default:

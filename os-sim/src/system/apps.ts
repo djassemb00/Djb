@@ -11,6 +11,7 @@ import { AppWindow,
   Settings,
   SquareTerminal,
   Cpu,
+  Activity,
 } from 'lucide-react';
 import type { AppId } from '../store/useOS';
 
@@ -50,6 +51,18 @@ export const APPS: AppMeta[] = [
     width: 640,
     height: 560,
     dock: true,
+    desktop: true,
+  },
+  {
+    id: 'measure',
+    name: 'قياساتي',
+    desc: 'سجّل الإطارات والحرارة، فيقول التطبيق ماذا تجرّب بعد ذلك — ويراجع تنبؤه أمام رقمك',
+    icon: Activity,
+    from: '#38bdf8',
+    to: '#0369a1',
+    width: 620,
+    height: 620,
+    dock: false,
     desktop: true,
   },
   {

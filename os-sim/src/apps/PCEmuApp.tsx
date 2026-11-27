@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Cpu, HardDrive, MonitorPlay, MousePointerClick, Power, ShieldCheck, Upload, Zap } from 'lucide-react';
+import { Cpu, HardDrive, MonitorPlay, MousePointerClick, Power, Shield, Upload, Zap } from 'lucide-react';
 import { useVM } from '../store/useVM';
 import { useOS } from '../store/useOS';
 import { sfx } from '../system/sound';
@@ -81,7 +81,7 @@ export function PCEmuApp() {
       </div>
 
       <div className="emu-note">
-        <ShieldCheck size={14} />
+        <Shield size={14} />
         <span className="tiny muted">
           لا يُضمَّن أي نظام تجاري. المحاكي يشغّل NovaDesk المرفق أو أي صورة نظام تملك حق استخدامها.
           القرص الحالي: <b>{activeImageId}</b>.

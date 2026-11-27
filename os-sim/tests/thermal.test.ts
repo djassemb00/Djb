@@ -107,3 +107,60 @@ describe('thermal bridge', () => {
     expect(statusLabel(99)).toBe('shutdown');
   });
 });
+
+/**
+ * PLAN ٤-٥: the governor must explain what it cannot promise.
+ *
+ * The plan asks for "temperature stays under 45° after 15 minutes, or the app explains why
+ * it cannot". Android exposes no SoC temperature in degrees -- what exists is a 0..6
+ * severity and a headroom RATIO. So the second half of the criterion is the only honest
+ * one to meet, and these tests hold us to it: no function here may invent a temperature.
+ */
+describe('٤-٥ the thermal promise is stated in signals we actually read', () => {
+  it('publishes no degree figure of its own', async () => {
+    const { THERMAL_PROMISE } = await import('../src/system/thermal');
+    expect(THERMAL_PROMISE.wePublishTempC).toBe(false);
+    expect(THERMAL_PROMISE.whatWeRead).toContain('headroom');
+    expect(THERMAL_PROMISE.why).toContain('نسبة');
+    // the plan's target is kept only so a reader can see it is NOT claimed
+    expect(THERMAL_PROMISE.planTargetC).toBe(45);
+  });
+
+  it('says "unreadable" instead of "fine" when there is no thermal source', async () => {
+    const { thermalVerdict, thermalSentence } = await import('../src/system/thermal');
+    const r = {
+      thermal: 'unknown' as const,
+      headroom: null,
+      battery: null,
+      charging: null,
+      throttle: 1,
+      reason: 'لا يمكن قراءة حرارة الجهاز من هنا — السرعة الكاملة',
+    };
+    expect(thermalVerdict(r)).toBe('unreadable');
+    const s = thermalSentence(r);
+    expect(s).toContain('لا يمكن');
+    // and it must not slip a number in anyway
+    expect(s).not.toMatch(/٤٥|45/);
+  });
+
+  it('calls it hot when headroom is at the SEVERE threshold', async () => {
+    const { thermalVerdict } = await import('../src/system/thermal');
+    const base = { thermal: 'none' as const, battery: null, charging: null, throttle: 0.5, reason: '' };
+    expect(thermalVerdict({ ...base, headroom: 0.95 })).toBe('hot');
+    expect(thermalVerdict({ ...base, headroom: 0.2 })).toBe('holding');
+  });
+
+  it('does not add a temperature to a sentence built from headroom', async () => {
+    const { thermalSentence } = await import('../src/system/thermal');
+    const s = thermalSentence({
+      thermal: 'moderate',
+      headroom: 0.95,
+      battery: 80,
+      charging: false,
+      throttle: 0.5,
+      reason: 'الهاتف يقترب من الخنق الحراري — خُفّضت السرعة للنصف',
+    });
+    expect(s).toContain('لا نستطيع قياس الدرجات');
+    expect(s).not.toMatch(/\d+\s*°|٤٥°/);
+  });
+});

@@ -807,6 +807,61 @@ function auditStatic() {
     );
   }
 
+  // 1.30 no suggestion may name a value Winlator does not define, and none may claim to
+  // write a key Winlator ignores. The plan's own ٤-١ table did both: `COMPATIBILITY` is not
+  // in Box64Preset.java (A57 again) and "try FEX" needs the `emulator` key, which
+  // Container.loadData ignores (A55). A decision table that recommends a no-op is worse
+  // than no table, because the user believes they changed something.
+  {
+    const decide = has('src/system/decide.ts') ? read('src/system/decide.ts') : '';
+    if (!decide) {
+      add('1.30', 'audit', true, 'no decision table yet');
+    } else {
+      const badPreset = /'COMPATIBILITY'/.test(decide.replace(/\/\*[\s\S]*?\*\//g, ''));
+      // the emulator key must not appear as a container write
+      const writesEmulator = /kind:\s*'container'[\s\S]{0,120}key:\s*'emulator'/.test(decide);
+      // and the preset it does write must come from the enum
+      const usesConstant = /BOX64_SAFE/.test(decide) && /BOX64_PRESETS\.includes/.test(decide);
+      add(
+        '1.30',
+        'audit',
+        !badPreset && !writesEmulator && usesConstant,
+        badPreset
+          ? "decide.ts names box64Preset 'COMPATIBILITY', which Box64Preset.java does not define"
+          : writesEmulator
+            ? "'emulator' is suggested as a container key, but Winlator ignores it"
+            : !usesConstant
+              ? 'the preset is a bare string, not checked against BOX64_PRESETS'
+              : 'every suggestion writes only values and keys Winlator actually reads',
+      );
+    }
+  }
+
+  // 1.31 the app may not print a temperature it did not measure. Android has no public
+  // SoC temperature API; ٤-٥'s "stays under 45°" is therefore unachievable, and a degree
+  // figure in the thermal UI would be invented by definition.
+  {
+    const thermal = has('src/system/thermal.ts') ? read('src/system/thermal.ts') : '';
+    const measure = has('src/apps/MeasureApp.tsx') ? read('src/apps/MeasureApp.tsx') : '';
+    const claims = /wePublishTempC:\s*true/.test(thermal);
+    // a literal degree figure in a user-facing thermal sentence
+    const invented = /[٤٥]?\s*45\s*°|٤٥°/.test(
+      thermal.replace(/\/\*[\s\S]*?\*\//g, '').slice(thermal.indexOf('THERMAL_PROMISE')),
+    );
+    add(
+      '1.31',
+      'audit',
+      !claims && !invented && /thermalSentence/.test(measure),
+      claims
+        ? 'thermal.ts declares that it publishes a temperature'
+        : invented
+          ? 'a degree figure appears in the thermal promise: Android gives no such reading'
+          : !/thermalSentence/.test(measure)
+            ? 'the measure screen never shows the thermal state'
+            : 'the thermal state is shown without claiming a degree reading',
+    );
+  }
+
   // 1.24 every XML under android/ must be legal XML. I shipped TWO files this cycle whose
   // comments contained a double hyphen ("-- maxSdkVersion", "-- a false negative"). aapt
   // rejects that at build time; the suite only noticed because I happened to parse the
@@ -949,12 +1004,25 @@ function prove() {
      * cycle, and only fails if the headroom is gone.
      */
     const headroom = 240_000 - gz;
-    const warnAt = 16_384; // 16 KB: roughly one more small module's worth
+    /*
+     * The ceiling alone is a bad governor: it says nothing until the build breaks. Two
+     * levels, both printed every cycle:
+     *   warn  (< 16 KB)  one more small module's worth -- plan for a trade
+     *   block (< 2 KB)   the next commit must REMOVE bytes before adding any
+     * Phase 4 added the measure screen and left 517 bytes, which is not a budget, so the
+     * block level fails the cycle rather than letting a change squeeze in and then fail.
+     */
+    const warnAt = 16_384;
+    const blockAt = 2_048;
     add(
       '4.4b budget headroom',
       'prove',
-      headroom > 0,
-      headroom > warnAt ? `${headroom} bytes left` : `LOW: ${headroom} bytes left`,
+      headroom > blockAt,
+      headroom > warnAt
+        ? `${headroom} bytes left`
+        : headroom > blockAt
+          ? `LOW: ${headroom} bytes left`
+          : `EXHAUSTED: ${headroom} bytes — remove bytes before adding any`,
     );
     if (headroom <= warnAt) {
       console.log(`  !   4.4b only ${headroom} bytes of gzip headroom: the next feature must trade for it`);

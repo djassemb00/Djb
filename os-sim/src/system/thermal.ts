@@ -146,3 +146,70 @@ export function thermalLabel(r: GovernorReading): string {
   };
   return names[r.thermal];
 }
+
+/**
+ * PLAN ٤-٥: what the governor can and cannot promise, said in one place.
+ *
+ * The plan's acceptance criterion is "after 15 minutes the temperature stays under 45°, or
+ * the app explains why it cannot". The second half is the part that must be met, because
+ * the first half is not achievable from a web app on this platform, and pretending
+ * otherwise is exactly the class of claim this repository exists to remove:
+ *
+ *   - Android exposes NO public API for SoC temperature in degrees. What It gives us is
+ *     PowerManager.getCurrentThermalStatus() (a 0..6 severity, not a temperature) and
+ *     getThermalHeadroom(seconds) -- a RATIO where 1.0 is the SEVERE threshold, valid for a
+ *     forecast a few seconds ahead. ThermalPlugin.kt reads exactly those two.
+ *   - So we cannot read 45 °C, cannot prove we kept the phone under it, and cannot lower
+ *     another app's load. What we control is our own emulator's speed.
+ *
+ * Therefore the promise is stated in terms of the signals we do have, and the degree
+ * figure is only ever a number the USER measured and entered -- never ours.
+ */
+export const THERMAL_PROMISE = {
+  /** the plan's figure, kept so the reader can see what we are NOT claiming */
+  planTargetC: 45 as number | null,
+  wePublishTempC: false,
+  whatWeControl: 'سرعة المحاكي فقط — لا حرارة الجهاز ولا تطبيقات أخرى',
+  whatWeRead: 'حالة الحرارة 0..6 (API 29+) وheadroom نسبةً إلى حدّ SEVERE (API 30+) — لا درجات',
+  why: 'أندرويد لا يعطي حرارة المعالج بالدرجات عبر أي API عام؛ ما يُقرأ نسبة لا ميزان حرارة',
+  source: 'developer.android.com PowerManager.getThermalHeadroom · ThermalPlugin.kt',
+} as const;
+
+export type ThermalVerdict = 'unreadable' | 'cooling' | 'holding' | 'hot';
+
+/**
+ * Did the phone stay out of trouble, judged on the signals that exist?
+ *
+ * `unreadable` is a real answer, not a failure: on a browser build there is no thermal
+ * source at all, and saying "fine" would be inventing the one number that matters. The UI
+ * shows `unreadable` as "لا يمكن القياس من هنا", which is the honest state.
+ */
+export function thermalVerdict(r: GovernorReading): ThermalVerdict {
+  if (r.thermal === 'unknown' && r.headroom === null) return 'unreadable';
+  // headroom is a forecast toward SEVERE; >= 0.9 means we are close to being throttled
+  if (r.headroom !== null && r.headroom >= 0.9) return 'hot';
+  if (r.thermal === 'moderate' || r.thermal === 'light') return 'cooling';
+  if (r.thermal === 'severe' || r.thermal === 'critical' || r.thermal === 'emergency' || r.thermal === 'shutdown') {
+    return 'hot';
+  }
+  return 'holding';
+}
+
+/** One sentence for the UI, and it never quotes a temperature we did not measure. */
+export function thermalSentence(r: GovernorReading): string {
+  switch (thermalVerdict(r)) {
+    case 'unreadable':
+      /*
+       * Deliberately contains no degree figure at all. An earlier version read "لا ندّعي
+       * أنها تحت ٤٥°", and a test looking for a fabricated temperature matched it -- which
+       * is the right failure: a sentence denying a number should not print the number.
+       */
+      return 'لا يمكن قياس حرارة الجهاز من هنا (لا API للحرارة في المتصفح) — لا ندّعي درجة لم نقسها';
+    case 'hot':
+      return `${r.reason}. لا نستطيع قياس الدرجات، لكن هذا يعني أن الهاتف يقترب من الخنق الحراري`;
+    case 'cooling':
+      return `${r.reason} — الحالة تتحسّن، والسرعة ${Math.round(r.throttle * 100)}٪`;
+    case 'holding':
+      return `${r.reason} — الأرقام التي نقرأها (الحالة وheadroom) تقول إننا خارج الخنق`;
+  }
+}
