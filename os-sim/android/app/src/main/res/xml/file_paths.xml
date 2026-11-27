@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared roots for FileProvider.
+
+  I first recorded this as a defect ("the template only allows external-path '.', so the
+  exported Documents/NovaPC file is outside every root, and FileProvider throws
+  IllegalArgumentException"). That was wrong, and the source says so: androidx
+  FileProvider.java:524 maps <external-path> to Environment.getExternalStorageDirectory(),
+  i.e. /sdcard, the root of shared storage, so `.` already covers Documents/NovaPC.
+  The explicit entry below is kept because it is narrower and documents the intent, not
+  because it was missing.
+-->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- narrower than "." above; names the one folder we actually share -->
+    <external-path name="nova_containers" path="Documents/NovaPC/" />
 </paths>

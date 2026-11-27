@@ -56,6 +56,7 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #26 | 2026-11-27 | ٣٨ فحصاً | نظفت بعد إغلاق A50-A54 | +`tests/fat12-reader.test.ts` (١٦) · فحص 1.21 · ١٦٢ اختباراً |
 | #27 | 2026-11-27 | ٣٩ فحصاً | نظيفة — فوسّعت الحلقة إلى **`winePrefix.ts`**: الملف الوحيد الذي يُسلَّم لبرنامج آخر | مخطط الحاوية · القيم |
 | #28 | 2026-11-27 | ٤٠ فحصاً | نظفت بعد إغلاق A55-A60 | +`winlator-keys.json` · `tests/wine-prefix.test.ts` (١٦) · فحص 1.22 · ١٧٨ اختباراً |
+| #29 | 2026-11-27 | ٤٠ فحصاً | نظفت بعد إغلاق A61-A66 — **وأخطرها لم تُره البوابة**: خمسة عيوب في مسار المشاركة ظهرت بعد أن كنت سأعلن البند مكتملاً | المرحلة ٢ كاملة · `containerExport.ts` · `routeStatus.ts` · `nativeLaunch.ts` · `NativeLaunchPlugin.kt` · فحوص 1.23-1.26 · ٢١٩ اختباراً |
 
 ## العيوب المُغلقة
 
@@ -122,6 +123,12 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A58 | **`envVars` يستبدل قيم Winlator الافتراضية بدل دمجها** | أي حاوية تُرسل `envVars` **تستبدل** `DEFAULT_ENV_VARS` كاملاً — فستّ قيم لنا أسقطت `WINEESYNC=1` و`MESA_SHADER_CACHE_MAX_SIZE=512MB`، أي جزءاً كبيراً من الأداء الذي كان يجب أن تحمله الحاوية | measured: `Container.DEFAULT_ENV_VARS` من المصدر مقابل تصديرنا (لا يحوي واحداً منهما) | `mergeEnv()`: الافتراضي أولاً وتحسيناتنا تغلبه |
 | A59 | **عنوان عربي → اسم ملف `prefix` — كل الألعاب العربية تتصادم** | `\w` في JS لاتيني، فـ«لعبة» تصير فارغة → `prefix.container.json`، وWinlator يحفظ مجلداً لكل حاوية | measured: `لعبة → prefix.container.json`، وأربعة عناوين → ثلاثة أسماء متطابقة | `\p{L}\p{N}` مع `u`، واحتياطي تجزئة على **العنوان الخام** (لا المقصوص) — `''` و`'   '` كانا يتصادمان أيضاً |
 | A60 | **اختبار Winlator يعرّف مفاتيحه بنفسه: قائمة ٤٩ مخترعة** | الاختبار كان يطابق تصديرنا ضد قائمة لم تُقابَل بأي مصدر، فتجعله يوافق نفسه ويُبقي `emulator`/`fullscreenMode` «مقبولين» | measured: `tests/winePrefix.test.ts:10 const ACCEPTED = new Set([...49...])` مقابل `case "` الحقيقية = ٢٠ | القائمة تُقرأ من المرجع الواقعي؛ ثلاثة اختبارات قديمة صُحّحت (slot id · preset · نسخ المفاتيح) |
+| A61 | **تعليق XML فيه `--` جعل المانيفست غير قابل للتحليل** — أي أن بناء الـAPK كان سيفشل | كتبتُ `-- maxSdkVersion` و`-- a false negative` داخل تعليقين في `AndroidManifest.xml` و`file_paths.xml`. XML يمنع `--` داخل تعليق، و`aapt` يرفض الملف برسالة عن «invalid token» لا عن تعليق. لم أكن سأعرف قبل المحاولة الأولى للبناء، ولا أستطيع البناء هنا | measured: `xml.etree.ElementTree.parse` → `ParseError: not well-formed, line 69 column 57`؛ ثم مسح ١٤ ملفاً: ٢ منها مكسوران | أُصلحت التعليقات (شرطة معقوفة بدل المزدوجة)، وأُضيف **فحص بوابة 1.24** يمسح كل `android/**/*.xml` ويقارن المكدّس؛ وتشويهان يُسقطانه |
+| A62 | **البوابة كانت ستعتمد على ملفات غير متتبَّعة** | الفحوص 1.24-1.26 تقرأ `src/system/nativeLaunch.ts` و`NativeLaunchPlugin.kt` وهما جديدان وغير مضافَين إلى git. فحص 1.8b (موجود من قبل) أوقف الدورة: `gate depends on untracked` | measured: `FAIL 1.8b gate depends on untracked: src/system/nativeLaunch.ts` | `git add -A` للملفات الخمسة الجديدة؛ الحارس نفسه لم يُلمس |
+| A63 | **٢-٣ مُعلَن في المانيفست ولا أحد يقرأ الـintent** — ملف يُشارَك يفتح التطبيق ولا يحدث شيء | `<intent-filter>` لـ`ACTION_SEND`/`ACTION_VIEW` + `classifyShare()` مُختبَرة = صفر: `MainActivity` لم ينادِ `getIntent()` ولا `onNewIntent`، و`classifyShare` لم ينادها إلا الاختبار. الحالة كانت مطابقة تماماً لعدم استقبال الملف | measured: `grep -rn classifyShare src tests` → الوحيد في `nativeLaunch.ts` والاختبار؛ و`MainActivity.java` بلا `getIntent` | `MainActivity.onCreate/onNewIntent` → `stash()`؛ `takePendingShare()` في الـplugin؛ `takeSharedFile()`+`judgeShare()` في TS؛ واختبارات تُشوّه الحارس |
+| A64 | **`detect()` يرمي استثناءً على كل جهاز بلا Winlator** | `installedVersion(found.getString(0) ?: "")` — و`JSArray.getString(0)` على مصفوفة فارغة يرمي `JSONException`. أي أن «غير مثبَّت» (الحالة الأكثر شيوعاً) كانت تصير خطأ في الـplugin | measured: قراءة `JSArray.getString` في `capacitor-android`؛ والمصفوفة فارغة عندما لا يوجد أي من الحزم الثلاث | `if (found.length() > 0)` قبل القراءة؛ والاختبار يرفض النمط القديم نصياً |
+| A65 | **`pending` لا يُصفَّر عند القراءة** — مشاركة تُعاد استيرادها عند كل فتح | أول نسخة صفّرت `pending` داخل فرع «لا يوجد stream» فقط، فالملف يبقى معلّقاً ويُقرأ مجدداً في الجلسة التالية. **وتوكيدي في الاختبار مرّ على هذا العيب** لأنه بحث عن `pending = null` الذي كان موجوداً في فرع آخر | measured: تشويه حذف التصفير → **٣٣/٣٣ ناجحة** (أي أن الاختبار لم يحمِ شيئاً) | التصفير انتقل إلى أول سطر بعد القراءة، وموضع واحد فقط؛ والاختبار الآن يؤكد **نمط الموضع** و**عدد المواضع = ١** |
+| A66 | **نافذة المشاركة تُفتح أثناء شاشة الإقلاع ثم يمسحها `unlock()`** — الملف يضيع في كل إقلاع بارد | الـeffect كان يقرأ `phase` من إغلاق التصيير. على الإقلاع البارد يبدأ المخزن على `'desktop'`، فيُطلق الـeffect فوراً، بينما `beginBoot()` ينقل الحالة إلى `'boot'`، و`unlock()` يضبط `windows: []`. فالنافذة تُفتح وتُمحى قبل أن تُرى — وهو العيب الأصلي بقناع آخر. اكتُشف بمتتبّع حالة (`SEQ=desktop:0 \| desktop:0 \| boot:0 \| boot:1`) بعد أن «نجح» اختباري الأول | measured: `useOS.subscribe` trace؛ و`useOS.ts:331 unlock: set({phase:'desktop', windows: []})` | قراءة الحالة حيّة عبر `useOS.getState().phase` وانتظار الانتقال عبر `useOS.subscribe`؛ وثلاثة اختبارات (القفل · الإقلاع · المقاس) تفشل عند إعادة الإغلاق القديم |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -194,6 +201,24 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | wine | إعادة `\w` للعنوان العربي | FAIL ✔ |
 | wine | إعادة جملة WOW64 | FAIL ✔ |
 | gate 1.22 | قيمة preset غير معرّفة | FAIL ✔ |
+| 1.24 | إعادة `--` داخل تعليق في `AndroidManifest.xml` | FAIL ✔ |
+| 1.24 | وسم غير مغلق في `values/strings.xml` (ملف لا يقرأه أي اختبار) | FAIL ✔ |
+| 1.25 | حذف `getIntent()` من `MainActivity` (العيب A63 نفسه) | FAIL ✔ |
+| 1.25 | إسقاط مرشّح المشاركة كاملاً من المانيفست | `ok` ✔ (لا شيء لاستقباله — ليس عيباً) |
+| 1.26 | إزالة فتح النافذة من `App.tsx` | FAIL ✔ |
+| 1.26 | إعادة قراءة `phase` من إغلاق التصيير (A66) | FAIL ✔ |
+| 1.26 | حذف `useOS.subscribe` (لا ينتظر الانتقال) | FAIL ✔ |
+| 1.26 | إعادة تسمية `shareCache` (كسر الذاكرة) | FAIL ✔ |
+| اختبار | حذف `pending = null` | **PASSED ✘** → بعد إعادة تأكيد الموضع → FAIL ✔ |
+| اختبار | `pending = null` مرتين (واحد في فرع) | FAIL ✔ |
+| اختبار | `if (found.length() > 0)` ← `found.getString(0)` | FAIL ✔ (توكيد سابق طابق التعليق) |
+| اختبار | `stash()` تبقى كل الـintents (الإقلاع يصير مشاركة) | **PASSED ✘** → بعد تثبيت الحارس → FAIL ✔ |
+| اختبار | حذف `onNewIntent` | FAIL ✔ |
+| عرض | حذف بطاقة المشاركة من JSX | FAIL ✔ (٣/٤) |
+| عرض | `judgeShare` تقبل كل شيء | FAIL ✔ (٢/٤) |
+| عرض | عدم تعيين `setShared` | FAIL ✔ (٣/٤) |
+| عرض | حذف حارس `phase !== 'desktop'` | FAIL ✔ (٧٢٤ مقابل ٠ نوافذ) |
+| render | `renderToStaticMarkup` بدل التركيب (لا تأثيرات) | لا يصلح أساساً — أُبطل المسار |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 
@@ -202,3 +227,5 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | `adjustMarginsForEdgeToEdge: 'force'` على MagicOS تحديداً | السلوك مقروء من كود Capacitor، لكن لم يُرَ على HONOR Magic4 Pro. يحتاج جهازك |
 | بناء APK و`aapt dump badging` | لا JDK ولا Android SDK في هذه البيئة |
 | قيم الحرارة الحقيقية | تحتاج عتاداً |
+| مسار المشاركة على جهاز حقيقي (٢-٣) | كل ما أُثبت: أن المانيفست يعلن، وأن Java يقرأ، وأن TS يصنّف ويعرض، وأن النافذة تُفتح بعد الإقلاع. **لم يُجرَّب سحب ملف من مدير ملفات إلى التطبيق** — يحتاج جهازك |
+| `NativeLaunchPlugin.kt` يعمل وقت التشغيل | لا JDK ولا SDK: الكود مقروء مقابل API Capacitor الحقيقي، ومُختبَر نصياً، ولم يُنفَّذ قط |

@@ -13,6 +13,7 @@ import { MachineView } from './machine/MachineView';
 import { useVM } from './store/useVM';
 import { cx } from './system/cx';
 import { installBackHandler, planBack } from './system/backButton';
+import { takeSharedFile } from './system/nativeLaunch';
 
 export default function App() {
   const phase = useOS((s) => s.phase);
@@ -27,6 +28,52 @@ export default function App() {
   const [power, setPower] = useState(false);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const setVmScreen = useVM((s) => s.setScreen);
+
+  /**
+   * PLAN ٢-٣, the half that was still missing after the manifest and the plugin were
+   * written: a shared file starts the activity, but NovaOS opens onto the desktop, and
+   * GameSetupApp only exists inside a window the user opens by hand. The file was
+   * received, classified, and then never shown -- indistinguishable from dropping it.
+   *
+   * The first version of this read `phase` from the render closure and waited for
+   * 'desktop'. That was wrong in a way only a trace showed: on a cold start the store is
+   * still 'desktop' for the very first commit, this effect therefore fired, and the
+   * window was opened during the boot screen that `beginBoot()` immediately switched to.
+   * `unlock()` sets `windows: []`, so the share was wiped before the user ever saw it --
+   * the original defect again, one layer down. The phase is now read live, and the open
+   * waits for the desktop instead of assuming it.
+   */
+  const handledShare = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    let unsub: (() => void) | null = null;
+
+    const openWhenReady = () => {
+      if (cancelled || handledShare.current) return true;
+      if (useOS.getState().phase !== 'desktop') return false;
+      handledShare.current = true;
+      useOS.getState().open({ appId: 'setup', width: 660, height: 560 });
+      return true;
+    };
+
+    void takeSharedFile().then((r) => {
+      if (cancelled || !r.pending) return;
+      if (openWhenReady()) return;
+      // boot / lock: wait for the transition rather than opening into a screen that
+      // clears all windows
+      unsub = useOS.subscribe(() => {
+        if (openWhenReady()) {
+          unsub?.();
+          unsub = null;
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, []);
 
   // Hardware/gesture back: unwind the UI instead of leaving the app. Registered
   // before anything is open so the order (topmost first) matches what the user sees.

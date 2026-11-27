@@ -8,7 +8,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    // .tsx as well: a component test is the only thing that can prove a card is really
+    // rendered. Every honesty check before this read the source text instead, which is
+    // how "the code looks right" kept passing while nothing was drawn.
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },

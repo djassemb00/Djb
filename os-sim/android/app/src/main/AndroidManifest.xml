@@ -24,6 +24,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--
+              PLAN ٢-٣: "share to NovaPC" from the phone's file manager. Without these the
+              app can only receive a file by being opened with it, and a user who taps
+              Share on a downloaded .exe never sees NovaPC in the list.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/x-msdownload" />
+                <data android:mimeType="application/zip" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/x-msdownload" />
+            </intent-filter>
         </activity>
 
         <provider
@@ -40,4 +60,30 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      PLAN ٢-١: the container has to reach Documents/NovaPC so it can be imported into
+      Winlator. The Filesystem plugin writes through MediaStore/SAF on Android 10+, while
+      on Android 7 to 9 the legacy permission is still required. maxSdkVersion keeps the
+      request off modern devices, where it is ignored anyway.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!--
+      PLAN ٢-٢. Android 11 and newer hide installed packages from getPackageInfo unless they
+      are listed here, and a missing <queries> entry fails *silently*: detect() would answer
+      "not installed" on a phone that has Winlator, and the button would lie. Names come
+      from the upstream repos: brunodev85/winlator (com.winlator),
+      The412Banner/Bannerlator (com.winlator.star), app.gamenative.
+    -->
+    <queries>
+        <package android:name="com.winlator" />
+        <package android:name="com.winlator.star" />
+        <package android:name="app.gamenative" />
+    </queries>
+
 </manifest>

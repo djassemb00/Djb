@@ -575,6 +575,200 @@ function auditStatic() {
     }
   }
 
+  // 1.23 PLAN phase 2: the two lanes that reach outside the app must stay wired.
+  //   (a) export: the container goes to Documents/NovaPC, and the APK has a plugin that
+  //       can write there -- a Blob download inside a WebView writes nothing.
+  //   (b) launch: a FileProvider root must COVER the export folder, and the packages must
+  //       be declared in <queries> or Android 13 hides them.
+  {
+    const cePath = 'src/system/containerExport.ts';
+    const ktPath = 'android/app/src/main/java/os/nova/shell/NativeLaunchPlugin.kt';
+    const mainPath = 'android/app/src/main/java/os/nova/shell/MainActivity.java';
+    const fpPath = 'android/app/src/main/res/xml/file_paths.xml';
+    const manifestPath = 'android/app/src/main/AndroidManifest.xml';
+    const need = [cePath, ktPath, mainPath, fpPath, manifestPath];
+    if (need.every(has)) {
+      const ce = read(cePath);
+      const main = read(mainPath);
+      const fp = read(fpPath);
+      const manifest = read(manifestPath);
+      const dir = (ce.match(/EXPORT_DIR = '([^']+)'/) ?? [])[1] ?? '';
+      const roots = [...fp.matchAll(/<(external-path|external-files-path|cache-path|files-path)[^>]*path="([^"]*)"/g)].map(
+        (m) => m[2],
+      );
+      /*
+       * EXPORT_DIR is relative to Directory.Documents, so "NovaPC" must be resolved to
+       * "Documents/NovaPC" before comparing it with FileProvider roots -- the first
+       * version compared the bare folder name and reported a correct file as a failure.
+       */
+      /*
+       * What actually covers the folder: an <external-path> (or external-files-path) whose
+       * path is the export folder or a prefix of it. androidx FileProvider.java:524 maps
+       * <external-path> to Environment.getExternalStorageDirectory(), so a bare "." there
+       * covers everything under /sdcard -- a cache-path "." does NOT, and an earlier
+       * version of this check accepted it.
+       */
+      const coveringTags = new Set(['external-path', 'external-files-path']);
+      const covered =
+        !!dir &&
+        [...fp.matchAll(/<(external-path|external-files-path|cache-path|files-path)[^>]*path="([^"]*)"/g)]
+          .filter((m) => coveringTags.has(m[1]))
+          .some((m) => {
+            const pfx = m[2].replace(/\/+$/, '');
+            return pfx === '' || pfx === '.' || `Documents/${dir}/`.startsWith(`${pfx}/`);
+          });
+      const registered = /registerPlugin\(NativeLaunchPlugin\.class\)/.test(main);
+      const queries = ['com.winlator', 'com.winlator.star', 'app.gamenative'].every((pkg) =>
+        new RegExp(`android:name="${pkg}"`).test(manifest),
+      );
+      const filesystem = has('android/app/capacitor.build.gradle')
+        ? /capacitor-filesystem/.test(read('android/app/capacitor.build.gradle'))
+        : false;
+      const fakeSuccess = /catches?[^]*return \{ ok: true, lane: 'documents'/.test(ce);
+      add(
+        '1.23',
+        'audit',
+        covered && registered && queries && filesystem && !fakeSuccess,
+        !filesystem
+          ? 'the APK has no Filesystem plugin, so the export lane cannot write Documents/NovaPC'
+          : !covered
+            ? `FileProvider roots (${roots.join(', ')}) do not cover ${dir || 'EXPORT_DIR'} -- open-in-Winlator would throw NOT_SHARED`
+            : !registered
+              ? 'NativeLaunchPlugin is not registered before the bridge starts'
+              : !queries
+                ? 'Winlator/GameNative are not in <queries>: Android 13 hides them and detect() always says "not installed"'
+                : fakeSuccess
+                  ? 'a failed native write can still report success'
+                  : `export writes ${dir}; FileProvider covers it; packages visible; plugin registered`,
+      );
+    }
+  }
+
+  // 1.25 a declared intent filter must have a reader. This cycle's worst defect was
+  // exactly this shape: the manifest advertised ACTION_SEND, the classifier was unit
+  // tested, and nothing in Java ever called getIntent() -- so sharing a file opened the
+  // app onto the same screen as a normal launch. The test suite missed it because every
+  // assertion was about a pure function; only a check that reads both files at once
+  // can see the gap between them.
+  {
+    const manifest = has('android/app/src/main/AndroidManifest.xml')
+      ? read('android/app/src/main/AndroidManifest.xml')
+      : '';
+    const java = has('android/app/src/main/java/os/nova/shell/MainActivity.java')
+      ? read('android/app/src/main/java/os/nova/shell/MainActivity.java')
+      : '';
+    const kt = has('android/app/src/main/java/os/nova/shell/NativeLaunchPlugin.kt')
+      ? read('android/app/src/main/java/os/nova/shell/NativeLaunchPlugin.kt')
+      : '';
+    const declaresShare = /android\.intent\.action\.(SEND|VIEW)/.test(manifest);
+    if (!declaresShare) {
+      add('1.25', 'audit', true, 'no share-in filter declared: nothing to receive');
+    } else {
+      const reads = java.includes('getIntent()') && java.includes('stash');
+      const redelivers = /onNewIntent\s*\(/.test(java);
+      const exposes = kt.includes('fun takePendingShare') && /EXTRA_STREAM/.test(kt);
+      // singleTask is what makes onNewIntent the path for the second share
+      const singleTask = /android:launchMode="singleTask"/.test(manifest);
+      add(
+        '1.25',
+        'audit',
+        reads && redelivers && exposes && singleTask,
+        !reads
+          ? 'the manifest declares a share-in filter but MainActivity never reads getIntent(): the file is dropped'
+          : !redelivers
+            ? 'no onNewIntent: a second shared file is silently ignored while the app is open'
+            : !exposes
+              ? 'the plugin never exposes the pending share to the web layer'
+              : !singleTask
+                ? 'launchMode is not singleTask, so onNewIntent never fires'
+                : 'share-in is wired end to end (filter -> intent -> plugin -> web)',
+      );
+    }
+  }
+
+  // 1.26 a share that is received but never shown is the same defect as one never
+  // received. The manifest and the Java were correct and the app still did nothing: NovaOS
+  // boots to the desktop, GameSetupApp lives inside a window, and nothing opened one for
+  // the incoming file. So: if the share lane exists, App.tsx must open the window and
+  // GameSetupApp must render the verdict.
+  {
+    const app = has('src/App.tsx') ? read('src/App.tsx') : '';
+    const setup = has('src/apps/GameSetupApp.tsx') ? read('src/apps/GameSetupApp.tsx') : '';
+    const nl = has('src/system/nativeLaunch.ts') ? read('src/system/nativeLaunch.ts') : '';
+    if (!nl.includes('takeSharedFile')) {
+      add('1.26', 'audit', true, 'no share-in lane in the web layer');
+    } else {
+      // the window open must live in the share lane, not somewhere else in App.tsx
+      const laneStart = app.indexOf('takeSharedFile');
+      const lane = laneStart >= 0 ? app.slice(laneStart, laneStart + 2500) : '';
+      const opens = /open\(\{\s*appId:\s*'setup'/.test(lane);
+      // reading the phase from the render closure is what opened the window during boot,
+      // where unlock() then wiped it; the live read is the fix, so it is asserted
+      const livePhase = /useOS\.getState\(\)\.phase/.test(app);
+      const waits = /useOS\.subscribe\(/.test(app);
+      const shows = /judgeShare\s*\(/.test(setup) && /shared\.reason|shared\.accept/.test(setup);
+      // a cached read is what lets two callers both see the file (one native read)
+      const cached = /shareCache/.test(nl);
+      add(
+        '1.26',
+        'audit',
+        opens && shows && cached && livePhase && waits,
+        !opens
+          ? 'the app receives a shared file but never opens the window that shows it'
+          : !livePhase || !waits
+            ? 'the share window is opened from a stale phase, so it can land during boot and be wiped by unlock()'
+            : !shows
+            ? 'GameSetupApp never renders the verdict, so the share is parsed into nothing'
+            : !cached
+              ? 'the native read is consumed on first call, so the second caller sees no file'
+              : 'a shared file reaches the user: consumed once, window opened, verdict shown',
+      );
+    }
+  }
+
+  // 1.24 every XML under android/ must be legal XML. I shipped TWO files this cycle whose
+  // comments contained a double hyphen ("-- maxSdkVersion", "-- a false negative"). aapt
+  // rejects that at build time; the suite only noticed because I happened to parse the
+  // two files I had touched. This walks all of them, so the next one is caught by the
+  // gate rather than by a build I cannot run here.
+  {
+    const walk = (dir) =>
+      readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((e) => {
+        const rel = `${dir}/${e.name}`;
+        if (e.isDirectory()) return e.name === 'build' ? [] : walk(rel);
+        return e.name.endsWith('.xml') ? [rel] : [];
+      });
+    const files = has('android') ? walk('android') : [];
+    const broken = [];
+    for (const f of files) {
+      const text = read(f);
+      for (const m of text.matchAll(/<!--([\s\S]*?)-->/g)) {
+        // "--" inside a comment, or a comment ending in "-", both illegal
+        if (m[1].includes('--') || m[1].endsWith('-')) broken.push(`${f} (double hyphen in a comment)`);
+      }
+      // tag stack: catches an unclosed <paths> or a stray </activity>
+      const stack = [];
+      for (const m of text.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(\/?)([a-zA-Z][\w:.-]*)(\s[^<>]*)?(\/?)>/g)) {
+        const [, closing, name, attrs, selfClose] = m;
+        if (selfClose || attrs?.trimEnd().endsWith('/')) continue;
+        if (closing) {
+          if (stack.pop() !== name) broken.push(`${f} (</${name}> closes the wrong element)`);
+        } else stack.push(name);
+      }
+      if (stack.length) broken.push(`${f} (unclosed <${stack[stack.length - 1]}>)`);
+    }
+    add(
+      '1.24',
+      'audit',
+      files.length > 0 && broken.length === 0,
+      !files.length
+        ? 'no Android XML found'
+        : broken.length
+          ? `${broken.length} malformed: ${[...new Set(broken)].slice(0, 3).join('; ')}`
+          : `${files.length} Android XML files parse (comments legal, tags balanced)`,
+    );
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the

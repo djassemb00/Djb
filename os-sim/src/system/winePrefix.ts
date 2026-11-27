@@ -206,26 +206,77 @@ export const PREREQUISITES: string[] = [
   '٨–١٢ غيغا مساحة حرة إضافية للحاوية',
 ];
 
-/** where those pieces actually come from — checked repositories, with their licences */
-export const SOURCES: { name: string; url: string; note: string }[] = [
+/**
+ * PLAN ٢-٤: where the pieces come from, with the version and the date it was verified.
+ *
+ * Every entry was checked with `gh api repos/<r>/releases/latest` on 2026-11-27, and the
+ * tag, its date and the asset count are recorded here so a stale link is visible in the
+ * source rather than discovered by a user. We link to the release page and never
+ * re-distribute the binaries (see the no-piracy policy in PLAN §١-٧).
+ */
+export interface SourceRef {
+  name: string;
+  url: string;
+  note: string;
+  /** latest release tag seen when this was verified */
+  version: string;
+  /** ISO date of that release, from the GitHub API */
+  released: string;
+  /** how many downloadable assets that release has */
+  assets: number;
+  /** when the check was run */
+  verified: string;
+}
+
+export const SOURCES: SourceRef[] = [
   {
     name: 'brunodev85/winlator',
-    url: 'https://github.com/brunodev85/winlator',
-    note: 'المشروع الأم — ٢٠ ألف نجمة، رخصة LGPL-2.1، آخر تحديث اليوم',
+    url: 'https://github.com/brunodev85/winlator/releases',
+    note: 'المشروع الأم — ٢٠٢٢٨ نجمة، رخصة LGPL-2.1',
+    version: 'v11.2.0',
+    released: '2026-08-19',
+    assets: 1,
+    verified: '2026-11-27',
   },
   {
     name: 'K11MCH1/WinlatorTurnipDrivers',
-    url: 'https://github.com/K11MCH1/WinlatorTurnipDrivers',
-    note: 'برامج Turnip مبنية لـAdreno — ٤٢٥ نجمة، مصدر مباشر لا روابط مختصرة',
+    url: 'https://github.com/K11MCH1/WinlatorTurnipDrivers/releases',
+    note: 'برامج Turnip مبنية لـAdreno — مصدر مباشر لا روابط مختصرة',
+    version: 'winlator_v25.1_r2',
+    released: '2025-02-17',
+    assets: 2,
+    verified: '2026-11-27',
   },
   {
     name: 'Arihany/WinlatorWCPHub',
-    url: 'https://github.com/Arihany/WinlatorWCPHub',
+    url: 'https://github.com/Arihany/WinlatorWCPHub/releases',
     note: 'توزيع آلي لمكوّنات Wine/DXVK/Box64 (WCPs) — بدل تحميل يدوي',
+    version: 'FEXCore-unixlib',
+    released: '2026-08-24',
+    assets: 5,
+    verified: '2026-11-27',
   },
   {
     name: 'The412Banner/Bannerlator',
-    url: 'https://github.com/The412Banner/Bannerlator',
+    url: 'https://github.com/The412Banner/Bannerlator/releases',
     note: 'نسخة مجتمعية فيها تصدير إعدادات الحاوية نفسه — منها تعلّمنا مخطط JSON',
+    version: '3.2.2',
+    released: '2026-11-25',
+    assets: 5,
+    verified: '2026-11-27',
   },
 ];
+
+/** A source is "stale" once its recorded release is older than this many days. */
+export const SOURCE_STALE_DAYS = 400;
+
+export function daysSince(iso: string, now = Date.now()): number {
+  const t = Date.parse(`${iso}T00:00:00Z`);
+  if (Number.isNaN(t)) return Number.POSITIVE_INFINITY;
+  return Math.floor((now - t) / 86_400_000);
+}
+
+/** Which sources are old enough that the user should be told to check for a newer one. */
+export function staleSources(now = Date.now(), sources: SourceRef[] = SOURCES): SourceRef[] {
+  return sources.filter((s) => daysSince(s.released, now) > SOURCE_STALE_DAYS);
+}

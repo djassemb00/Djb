@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/filesystem": "^7.1.9",
     "lucide-react": "^0.546.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -26,7 +28,7 @@
   "devDependencies": {
     "@capacitor/android": "^7.4.0",
     "@capacitor/cli": "^7.4.0",
-    "@capacitor/core": "^7.4.0",
+    "@capacitor/core": "^7.4.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
