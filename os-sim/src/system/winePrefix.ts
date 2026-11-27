@@ -18,8 +18,6 @@
  */
 export interface PrefixProfile {
   name: string;
-  /** "win64" style Wine build; ARM64EC variants are a Wine-side choice, not a flag here */
-  arch: 'win64' | 'arm64ec';
   width: number;
   height: number;
   dxvk: string;
@@ -45,7 +43,6 @@ export function generateProfile(input: GenerateInput): PrefixProfile {
   const dxvk = input.dx9 ? '1.10.3' : '2.4';
   return {
     name: input.title.replace(/[^\w\u0600-\u06FF -]/g, '').slice(0, 40) || 'Nova Program',
-    arch: 'win64',
     // 1280x720 for a 16:9 phone panel; Winlator's own rule keeps 16:9 panels at 720p
     width: device === 'sd8gen1' ? 1280 : 960,
     height: device === 'sd8gen1' ? 720 : 540,
@@ -92,7 +89,10 @@ export function toContainerJson(p: PrefixProfile): string {
     dxwrapper: 'dxvk+vkd3d',
     dxwrapperConfig: `version=${p.dxvk},framerate=0,async=0,asyncCache=0,csmt=3,gpuName=Adreno (TM) 730,videoMemorySize=2048`,
     emulator: 'FEXCore',
-    emulator64: p.wow64 ? 'fexcore' : 'fexcore',
+    // the ARM64EC lane (Wine native + FEX as a DLL) is deliberately not exported yet:
+    // we cannot verify it against a real install, and a wrong value here silently
+    // produces a container that runs in the slowest lane. See RESEARCH.md §٩٨.
+    emulator64: 'fexcore',
     box64Preset: p.wow64 ? 'COMPATIBILITY' : 'PERFORMANCE',
     audioDriver: 'alsa',
     inputType: 0,

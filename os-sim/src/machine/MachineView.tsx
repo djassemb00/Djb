@@ -27,6 +27,7 @@ import { cx } from '../system/cx';
 import { detectDevice } from '../system/deviceProfile';
 import { readGovernor, thermalLabel, type GovernorReading } from '../system/thermal';
 import { GamePad, useGamepad } from './GamePad';
+import { startThermalBridge } from '../system/thermalBridge';
 
 /** size of the NovaFS IDE disk handed to the guest (NovaDesk only) */
 const NOVA_DATA_BYTES = 4 * 1024 * 1024;
@@ -111,6 +112,14 @@ export function MachineView() {
 
   // Ask the platform how hot it is, then slow the guest down before Android
   // decides to throttle everything for us.
+  // Phone-only: install the platform thermal reader before the governor starts
+  // sampling, so the first reading is real instead of "normal".
+  useEffect(() => {
+    if (screen !== 'machine') return;
+    const stop = startThermalBridge();
+    return stop;
+  }, [screen]);
+
   useEffect(() => {
     if (screen !== 'machine') return;
     let alive = true;

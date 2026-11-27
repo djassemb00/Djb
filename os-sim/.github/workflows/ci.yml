@@ -1,0 +1,33 @@
+name: ci
+
+# Every push must prove three things: it type-checks, its tests pass (including the
+# ones that boot a real emulated PC and run a DOS program), and the bundle stays
+# inside the size budget we set in PLAN.md §8-3.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: type-check
+        run: npx tsc --noEmit -p .
+      - name: test (boots an emulated PC)
+        run: npm test
+      - name: build
+        run: npm run build
+      - name: size budget
+        run: |
+          js=$(find dist/assets -name 'index-*.js' -printf '%s\n' | sort -n | tail -1)
+          gz=$(gzip -c "$(find dist/assets -name 'index-*.js' | head -1)" | wc -c)
+          echo "js=$js gzip=$gz"
+          test "$js" -lt 800000 || { echo "JS bundle over 800 KB"; exit 1; }
+          test "$gz" -lt 240000 || { echo "gzipped bundle over 240 KB"; exit 1; }

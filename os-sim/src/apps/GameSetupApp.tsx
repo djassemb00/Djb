@@ -103,7 +103,7 @@ export function GameSetupApp() {
         </span>
         <span className="chip ok">Turnip</span>
         <span className="chip ok">DXVK {profile.dxvk}</span>
-        <span className="chip ok">{profile.arch === 'arm64ec' ? 'ARM64EC' : 'Box64 · win64'}</span>
+        <span className="chip ok">FEXCore · win64</span>
       </div>
 
       <div className="setup-actions">
