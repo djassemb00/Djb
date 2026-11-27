@@ -127,16 +127,39 @@ function auditStatic() {
     for (const line of ignored.split('\n')) {
       const p = line.trim();
       if (!p || p.startsWith('#') || p.includes('*')) continue;
-      if (!body.includes(p)) continue;
+      // A bare directory name like "out/" matches ANY mention -- including vm-core.test.ts
+      // writing the word "out" in an assertion message, which was reported as the test
+      // requiring the build directory. Require a path-like mention: the name followed by
+      // a path separator inside a string, or the whole path inside quotes.
+      const dir = p.replace(/\/+$/, ''); // "out/" and "out" are the same directory
+      const name = dir.split('/').pop();
+      const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      /*
+       * A mention must be the path, not a word that happens to end the same way.
+       *
+       * Two false positives lived here: the bare rule "out/" matched the word "out" in an
+       * assertion message, and the rule "app/src/main/assets/public" matched the relative
+       * import '../public/'. Both are mentions of the NAME; neither is the PATH. So the
+       * match anchors on what precedes the rule: start of the string, a separator, or a
+       * relative prefix -- and what follows it must be a separator, a quote or whitespace.
+       */
+      const pathLike = new RegExp(
+        `(['\"\`]|^|[/])${esc(dir)}([/'\"\`\\s,)]|$)`,
+      );
+      if (!pathLike.test(body)) continue;
       // Guarding one of several ignored reads does not protect the path: the check used
       // to look for `existsSync` ANYWHERE in the file, so removing the guard from one
       // read still passed. Two shapes count as guarded:
       //   a) if (existsSync('<path>')) { ... }            -- literal path
       //   b) const v = '<path>'; if (existsSync(v)) { ... } -- path behind an identifier
-      const base = (p.split('/').pop() ?? p).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const literalOrVar = `${base}|[A-Za-z_$][\\w$]*`;
+      // the guard names the last path segment; for a directory ignore rule ("out/") that
+      // segment is "out", which is what existsSync() would be called with.
+      const base = esc(name ?? '');
+      // The guard is existsSync(<argument containing this path>). The old pattern
+      // demanded "\s*\)\s*\)" after the literal, but in existsSync('out/x') the ")"
+      // directly follows the quote -- so no directory rule could ever be guarded.
       const guarded = new RegExp(
-        `if\\s*\\(\\s*existsSync\\(\\s*(?:${literalOrVar})\\s*\\)\\s*\\)`,
+        `if\\s*\\(\\s*existsSync\\(\\s*(?:['\"\\x60][^'\"\\x60]*${base}|[A-Za-z_$][\\w$]*)`,
       );
       const mentionsExistsSync = /existsSync\(/.test(body);
       // if the file never guards anything, or guards nothing near this path, it fails
@@ -447,6 +470,38 @@ function auditStatic() {
             : oldStorage || !scalable
               ? 'storage advice is back to bytes*1.6'
               : 'back order derives from the stylesheet; storage advice scales and names its factors',
+    );
+  }
+
+  // 1.20 the emulator's arithmetic must come from vmCore.ts, and the throttle must not be
+  // a fixed interval. Both defects here were silent: a disk that lost 2 MB on restore,
+  // and a thermal governor pinned at 50% for every factor.
+  {
+    const vmPath = 'src/system/vm.ts';
+    const corePath = 'src/system/vmCore.ts';
+    const vm = has(vmPath)
+      ? read(vmPath).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\//gm, '')
+      : '';
+    const core = has(corePath) ? read(corePath) : '';
+    const usesCore = /dataDiskSize\(/.test(vm) && /throttleActiveMs\(/.test(vm);
+    const noInterval = !/setInterval/.test(vm);
+    const noInvertedWait = !/on \? active : period - active/.test(vm);
+    const noShrinkRule = !/dataBytes > 0 \? dataBytes : restored\.byteLength/.test(vm);
+    const coreGrows = /return Math\.max\(req, got\)/.test(core);
+    const coreCycle = /Math\.round\(period \* f\)/.test(core);
+    add(
+      '1.20',
+      'audit',
+      usesCore && noInterval && noInvertedWait && noShrinkRule && coreGrows && coreCycle,
+      !usesCore
+        ? 'vm.ts computes its own disk size / throttle again instead of using vmCore.ts'
+        : !noInterval
+          ? 'vm.ts uses setInterval for the throttle: a fixed delay cannot express two phases'
+          : !noInvertedWait || !coreCycle
+            ? 'the throttle duty cycle is inverted again'
+            : !noShrinkRule || !coreGrows
+              ? 'the data disk can shrink again, zeroing restored files'
+              : 'emulator arithmetic lives in vmCore.ts; disk never shrinks; throttle is a duty cycle',
     );
   }
 

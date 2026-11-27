@@ -6,6 +6,7 @@
  * genuine x86 machine code running on an emulated CPU, not a web mock-up.
  */
 import { V86 } from 'v86';
+import { THROTTLE_PERIOD_MS, dataDiskSize, throttleActiveMs } from './vmCore';
 
 export type BootSource = 'novadesk' | 'freedos-hd' | 'custom-floppy' | 'custom-hd' | 'custom-iso';
 
@@ -78,9 +79,17 @@ export function createVM(opts: VMOptions): VMApi {
   const restored = opts.dataDisk && opts.dataDisk.byteLength > 0 ? opts.dataDisk : null;
   let dataDisk: Uint8Array | null = null;
   if (restored) {
-    // the disk geometry must stay stable between sessions: pad or trim to size
-    dataDisk = new Uint8Array(dataBytes > 0 ? dataBytes : restored.byteLength);
-    dataDisk.set(restored.subarray(0, dataDisk.byteLength));
+    /*
+     * The disk must be big enough for BOTH the size the caller asked for and the size of
+     * the bytes being restored. The old code took `dataDiskBytes` whenever it was set and
+     * then copied the restored image into it -- so a user whose disk had grown from 1 MB
+     * to 3 MB, restoring into a session that still requested 1 MB, had 2 MB of their files
+     * overwritten with zeros, silently. Growing is free; shrinking loses data, so we never
+     * shrink. Returns the size actually used via getDataDisk().
+     */
+    const size = dataDiskSize(dataBytes, restored.byteLength);
+    dataDisk = new Uint8Array(size);
+    dataDisk.set(restored.subarray(0, size));
   } else if (dataBytes > 0) {
     dataDisk = new Uint8Array(dataBytes);
   }
@@ -181,7 +190,7 @@ export function createVM(opts: VMOptions): VMApi {
       if (f === throttleFactor) return;
       throttleFactor = f;
       if (throttleTimer !== null) {
-        window.clearInterval(throttleTimer);
+        window.clearTimeout(throttleTimer);
         throttleTimer = null;
       }
       if (f >= 1) {
@@ -196,23 +205,41 @@ export function createVM(opts: VMOptions): VMApi {
         }
         return;
       }
-      const period = 200;
-      const active = Math.round(period * f);
-      let on = true;
+      /*
+       * Duty-cycle the CPU: run for `active` ms, stop for `period - active`.
+       *
+       * The old version was `setInterval(fn, on ? active : period - active)`. A
+       * setInterval delay is evaluated once, when the interval is created, with `on` still
+       * true -- so the delay was always `active`, the callback flipped `on` and acted, and
+       * the guest got equal run and stop phases. The governor was pinned at a 50% duty
+       * cycle for every factor: measured 50.0% at f = 0.1, 0.25, 0.4, 0.5, 0.75 and 0.9.
+       * The thermal cap it was supposed to enforce did not exist.
+       *
+       * setTimeout, not setInterval: the two phases have different durations, which a
+       * fixed interval cannot express.
+       */
+      const period = THROTTLE_PERIOD_MS;
+      const active = throttleActiveMs(f, period);
+      let running = true;
+      const schedule = () => {
+        const wait = running ? active : period - active;
+        throttleTimer = window.setTimeout(() => {
+          running = !running;
+          try {
+            if (running) void emulator.run();
+            else void emulator.stop();
+          } catch {
+            /* the machine may be starting or already gone */
+          }
+          if (throttleFactor === f && f > 0 && f < 1) schedule();
+        }, wait);
+      };
       try {
         void emulator.run();
       } catch {
         /* already running */
       }
-      throttleTimer = window.setInterval(() => {
-        on = !on;
-        try {
-          if (on) void emulator.run();
-          else void emulator.stop();
-        } catch {
-          /* the machine may be starting or already gone */
-        }
-      }, on ? active : period - active);
+      schedule();
     },
     restoreState: async (state) => {
       await emulator.restore_state(state);
@@ -232,7 +259,7 @@ export function createVM(opts: VMOptions): VMApi {
     },
     destroy: () => {
       if (throttleTimer !== null) {
-        window.clearInterval(throttleTimer);
+        window.clearTimeout(throttleTimer);
         throttleTimer = null;
       }
       try {
