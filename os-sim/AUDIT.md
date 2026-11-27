@@ -44,6 +44,8 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | #14 | 2026-11-27 | ٢٦ فحصاً | نظفت بعد إغلاق A27-A29 | +`tests/pe-real.test.ts` (١٢) · فحص 1.15 جديد · ٨٨ اختباراً |
 | #15 | 2026-11-27 | ٢٧ فحصاً | نظيفة — فوسّعت الحلقة إلى **الوعود المعروضة للمستخدم** | الكتالوج وبطاقات الأقراص |
 | #16 | 2026-11-27 | ٢٨ فحصاً | نظفت بعد إغلاق A30-A34 | +`tests/catalog.test.ts` (١١) · فحص 1.16 جديد · ٩٩ اختباراً |
+| #17 | 2026-11-27 | ٢٩ فحصاً | نظيفة — فوسّعت الحلقة إلى **كل شاشة تعرض رقماً** | `SettingsApp` · `MonitorApp` · `TerminalApp` |
+| #18 | 2026-11-27 | ٣٠ فحصاً | نظفت بعد إغلاق A35-A39 | +`netInfo.ts` · `vitals.ts` · `tests/ui-honesty.test.ts` (١٢) · فحص 1.17 · ١١١ اختباراً |
 
 ## العيوب المُغلقة
 
@@ -84,6 +86,11 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | A32 | تصنيف خاطئ: GTA الخمسة `kind: 'arcade'` | الألعاب تنسب إلى فئة غير فئتها، وأي فلترة مستقبلية للمكتبة ستخطئ | measured: `grep -n "kind:" src/system/catalog.ts` أظهر أربعة عناوين GTA بـ`arcade`، والمرجع هو وصف Rockstar الرسمي لكل عنوان (عالم مفتوح + قيادة + سلاح) → `shooter` مثل GTA V في السطر ٥١ | صُحّحت الخمسة، و`tests/catalog.test.ts` يفرضها |
 | A33 | رابط ميت: `org.openttd.sdl` | زر «تثبيت» على Play يفتح صفحة محذوفة منذ سنوات | measured: `curl` لكل رابط في الكتالوج أعاد `000` (الشبكة محجوبة هنا) → لا يمكن التحقق، والحكم منع الصنف لا تصحيح حالة واحدة؛ وhttps://www.openttd.org/downloads/openttd-releases/latest هي صفحة التنزيل الرسمية للمشروع | الرابط صار صفحة المشروع، واختبار يمنع أي رابط Play لا يخصّ Rockstar |
 | A34 | **فحص 1.16 الجديد قرأ تعليقاً وشرح نفسه كعيب** | أعلن FAIL بينما الكود سليم، لأن تعليقي يذكر الألعاب الأربع شارحاً أنها كانت خطأ | measured: `FAIL 1.16 … PRINCE, WOLF, DOOM, DUKE` مع أن البطاقة صحيحة، و`grep -n` أظهر أن الأسماء في سطر ٥٣ (تعليق) | `stripComments()` قبل مسح الادعاءات؛ والتشويهان ما زالا مصطادين |
+| A35 | **تطبيق «مراقب النظام» كله مسرح: `Math.random()` يحرّك المعالج والذاكرة والرسم البياني وكل صفوف العمليات** | خمسة استدعاءات `Math.random()` في ملف واحد، وصفر قراءة من أي API. المؤشر يتحدّث كل ١.٢ ثانية ويبدو كقياس حقيقي | measured: `grep -rn "Math.random" src/apps/ src/components/` → ٥ مطابقات كلها في `MonitorApp.tsx` | حُذف المولّد كله؛ الوحدة الجديدة `src/system/vitals.ts` تقرأ `performance.memory` (حجم الكومة الفعلي) وتعدّ النوافذ/الملفات/الملاحظات من الـ store، وتُعلن الأربعة التي لا تُقاس |
+| A36 | **شاشة «الشبكة» تعرض MAC وIP وسرعة تنزيل ملفّقة** | `A4:7B:09:1C:EE:22` · `192.168.1.42` · `184.2 Mbps` — نصوص حرفية بخط القياس نفسه. لا يمنح أي متصفح MAC ولا IP محلي لأي تطبيق ويب | measured: `grep -nE "18\.[0-9]\|184\.\|A4:7B" src/apps/` → الثلاثة في `SettingsApp.tsx` | `src/system/netInfo.ts` يقرأ `navigator.onLine` و`navigator.connection` فقط، والشاشة تقول بالكلمات إن MAC/IP «لا يمكن للتطبيق قراءتها» |
+| A37 | **الطرفية تطبع ذاكرة الهاتف كأنها ذاكرة الضيف** | `free` → `Mem: 8192M 2416M 5776M` ثابتاً؛ `df` → `8.0G` لنظام ملفات حجمه الحقيقي هو كوتا localStorage | measured: قراءة `useVM` — الذاكرة الحقيقية في `memoryMB` (٣٢ أو ٦٤ للضيف)، والهاتف ليس له علاقة | `free` يقرأ `memoryMB` من وصف الآلة النشطة؛ `df` يعدّ العُقد بدل ادّعاء حجم |
+| A38 | **قائمة العمليات كانت تسمّي `surfaceflinger` عملية تابعة لنا** | `surfaceflinger` خدمة نظام أندرويد، لا خيطاً في تطبيق ويب؛ وعرضها ضمن «عملياتنا» ادّعاء عن الهاتف | measured: `grep -n "surfaceflinger" src/` → `MonitorApp.tsx:5` فقط | القائمة صارت `OUR_THREADS = main · render · emulator · audio` |
+| A39 | **فحص 1.17 الذي كتبته أوقعه فحص 1.8b** | كتبت مساري الملفين نصاً داخل `gate.mjs`، فظنّ 1.8b أن البوابة تعتمد على `src/apps/SettingsApp.ts` (بلا x) — ملف غير موجود | measured: `FAIL 1.8b gate depends on untracked: src/apps/SettingsApp.ts, src/apps/TerminalApp.ts` | البحث بالاسم عبر `pick('SettingsApp')` بدل كتابة المسار |
 | A9 | `BatteryManager.getIntProperty` يُرجع `Int.MIN_VALUE` | بطارية «−2147483648%» في البطاقة | https://android.googlesource.com/platform/frameworks_base/+/refs/heads/android16-release/core/java/android/os/BatteryManager.java — `getIntProperty` returns `Integer.MIN_VALUE` when the property is unsupported | قصّ إلى `-1` في `ThermalPlugin.kt` + `gate 1.4` |
 
 ## دليل أنّ الفحوص ليست زينة (تشويه مُتعمَّد)
@@ -126,6 +133,11 @@ npm run gate      # دورة كاملة: ١٤ فحص تدقيق + إثبات (ts
 | catalog | إعادة رابط `org.openttd.sdl` الميت | FAIL ✔ |
 | catalog | جعل Wolfenstein «جاهزة بلمسة» بدل «أنت تجلب الملفات» | FAIL ✔ |
 | gate 1.16 | ادعاء «2 ميغابايت» على قرص ١٫٤٤ | FAIL ✔ |
+| ui | إعادة `Math.random()` إلى المراقب | FAIL ✔ (اختبار + فحص 1.17) |
+| ui | إعادة `A4:7B:09:1C:EE:22` / `192.168.1.42` | FAIL ✔ (اختبار + فحص 1.17) |
+| ui | إعادة `Mem: 8192M 2416M` إلى `free` | FAIL ✔ |
+| ui | إعادة `surfaceflinger` إلى قائمة العمليات | FAIL ✔ |
+| gate 1.17 | كتابة مسار ملف نصاً داخل الفحص | FAIL 1.8b ✔ (البوابة تصطاد نفسها) |
 
 ## ما هو **غير محسوم** ولم أدّعِ إغلاقه
 

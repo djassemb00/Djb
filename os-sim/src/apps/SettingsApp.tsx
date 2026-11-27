@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { ACCENTS, useOS, WALLPAPERS } from '../store/useOS';
 import { cx } from '../system/cx';
+import { readNetInfo } from '../system/netInfo';
 import { sfx } from '../system/sound';
 
 type Tab = 'appearance' | 'system' | 'network' | 'about-me' | 'reset';
@@ -46,6 +47,8 @@ export function SettingsApp() {
   const toggleQuick = useOS((s) => s.toggleQuick);
   const restart = useOS((s) => s.restart);
   const shutdown = useOS((s) => s.shutdown);
+  // read at render time, not at module load: navigator.onLine changes while the app runs
+  const net = readNetInfo();
   const lock = useOS((s) => s.lock);
   const notify = useOS((s) => s.notify);
   const [tab, setTab] = useState<Tab>('appearance');
@@ -207,19 +210,34 @@ export function SettingsApp() {
                   </div>
                 );
               })}
+              {/*
+                These three used to be literal strings: MAC A4:7B:09:1C:EE:22, IP
+                192.168.1.42, "سرعة التنزيل 184.2 Mbps". None of them was ever read
+                from anywhere -- they were invented constants shown in the same mono
+                font as real measurements, which is indistinguishable from telemetry
+                that lies. A browser cannot read the MAC address at all, so the honest
+                screen says what we can and cannot see.
+              */}
               <div className="card" style={{ marginTop: 12 }}>
                 <div className="row between">
-                  <span className="tiny muted">عنوان MAC</span>
-                  <span className="tiny os-mono">A4:7B:09:1C:EE:22</span>
+                  <span className="tiny muted">نوع الاتصال</span>
+                  <span className="tiny os-mono">
+                    {net.online ? (net.type || 'متصل') : 'غير متصل'}
+                    {net.effective ? ` · ${net.effective}` : ''}
+                  </span>
                 </div>
                 <div className="row between" style={{ marginTop: 6 }}>
-                  <span className="tiny muted">IP محلي</span>
-                  <span className="tiny os-mono">192.168.1.42</span>
+                  <span className="tiny muted">حالة الشبكة</span>
+                  <span className="tiny os-mono">{net.online ? 'متصلة' : 'منقطعة'}</span>
                 </div>
                 <div className="row between" style={{ marginTop: 6 }}>
-                  <span className="tiny muted">سرعة التنزيل</span>
-                  <span className="tiny os-mono">184.2 Mbps</span>
+                  <span className="tiny muted">عنوان MAC · IP محلي</span>
+                  <span className="tiny os-mono">لا يمكن للتطبيق قراءتها</span>
                 </div>
+                <p className="tiny muted" style={{ marginTop: 8, lineHeight: 1.6 }}>
+                  المتصفح لا يمنح أي تطبيق ويب عنوان MAC ولا عنوان IP المحلي؛ في أندرويد
+                  تحتاج قراءتها إلى صلاحية الشبكة أو Shizuku/root. لا نعرض أرقاماً ملفّقة.
+                </p>
               </div>
             </div>
           )}

@@ -339,6 +339,42 @@ function auditStatic() {
     );
   }
 
+  // 1.17 no UI file may generate a measurement. Simulated telemetry is worse than a
+  // missing feature: it renders in the same font as a real reading and the user has no
+  // way to tell. Math.random in an app/component is always a fake gauge.
+  if (has('src/apps')) {
+    const uiFiles = [
+      ...readdirSync(join(ROOT, 'src/apps')).map((f) => `src/apps/${f}`),
+      ...readdirSync(join(ROOT, 'src/components')).map((f) => `src/components/${f}`),
+    ].filter((f) => /\.tsx?$/.test(f) && has(f));
+    const strip = (t) =>
+      t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\//gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+    const faked = uiFiles.filter((f) => /Math\.random/.test(strip(read(f))));
+    // find the two screens by name rather than by literal path: writing the path here
+    // made check 1.8b believe the gate *depends* on those files (it caught itself).
+    const pick = (needle) => {
+      const f = uiFiles.find((x) => x.includes(needle));
+      return f ? strip(read(f)) : '';
+    };
+    // the invented network constants, checked by value because they are exact
+    const settings = pick('SettingsApp');
+    const invented = ['A4:7B:09:1C:EE:22', '192.168.1.42', '184.2'].filter((v) => settings.includes(v));
+    const term = pick('TerminalApp');
+    const phoneRam = /8192M\s+2416M/.test(term);
+    add(
+      '1.17',
+      'audit',
+      faked.length === 0 && invented.length === 0 && !phoneRam,
+      faked.length
+        ? `simulated measurement in ${faked.join(', ')} (Math.random)`
+        : invented.length
+          ? `settings prints invented network constants: ${invented.join(', ')}`
+          : phoneRam
+            ? 'terminal free prints the phone RAM as a constant'
+            : `no fabricated gauges in ${uiFiles.length} UI files`,
+    );
+  }
+
   // 1.12 every Arabic numeric claim shown to the user must appear in AUDIT.md with a
   // source. The "71% in 30 minutes" figure was invented; a test caught it only because
   // I happened to write one. This makes it structural: a percentage or a ratio in the

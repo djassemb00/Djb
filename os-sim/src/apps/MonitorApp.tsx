@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Activity, Cpu, HardDrive, MemoryStick } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, Cpu, HardDrive, MemoryStick, Info } from 'lucide-react';
 import { useOS } from '../store/useOS';
+import { OUR_THREADS, UNMEASURABLE, readVitals } from '../system/vitals';
 
-const PROC = ['nova-wm', 'nova-shell', 'files', 'notes', 'terminal', 'gallery', 'settings', 'surfaceflinger'];
+/** the ticker only exists so the heap reading refreshes; nothing here is generated */
 
 function useTicker(ms = 1200) {
   const [, set] = useState(0);
@@ -17,22 +18,13 @@ export function MonitorApp() {
   const windows = useOS((s) => s.windows);
   const notes = useOS((s) => s.notes);
   const fs = useOS((s) => s.fs);
-  const [cpuHist] = useState(() => Array.from({ length: 24 }, () => 10 + Math.random() * 18));
-  const [cpu, setCpu] = useState(18);
-  const [ram, setRam] = useState(2416);
-
+  // Real heap figures, sampled on the ticker. Chromium exposes performance.memory;
+  // if it does not, `measured` is false and the UI says "not available" instead of
+  // printing a number that means nothing.
+  const [vitals, setVitals] = useState(() => readVitals());
   useEffect(() => {
-    setCpu(Math.max(4, Math.min(88, cpu + (Math.random() - 0.5) * 22 + windows.length * 1.4)));
-    setRam(() => Math.round(1900 + windows.length * 120 + Math.random() * 260));
-  }, [windows.length, cpuHist]);
-
-  const hist = useMemo(() => [...cpuHist.slice(1), cpu], [cpu, cpuHist]);
-
-  const procs = PROC.map((name, i) => ({
-    name,
-    cpu: Math.max(0.2, (cpu / PROC.length) * (1 + Math.random()) * (i === 0 ? 2.4 : 1)),
-    mem: 60 + Math.random() * 220,
-  })).sort((a, b) => b.cpu - a.cpu);
+    setVitals(readVitals(undefined, { windows: windows.length, notes: notes.length }));
+  }, [windows.length, notes.length]);
 
   return (
     <div className="app-shell">
@@ -46,44 +38,50 @@ export function MonitorApp() {
           <div className="stat-grid">
             <div className="stat">
               <span className="row" style={{ gap: 5 }}>
-                <Cpu size={12} /> المعالج
+                <Cpu size={12} /> الذاكرة (JS)
               </span>
-              <b>{cpu.toFixed(0)}%</b>
-              <span>nova-core · 4 أنوية</span>
+              <b>{vitals.heapMB === null ? '—' : `${vitals.heapMB} MB`}</b>
+              <span>
+                {vitals.measured
+                  ? `من ${vitals.heapLimitMB} MB متاحة لهذا التطبيق`
+                  : 'المحرّك لا يفصح عن حجم الذاكرة'}
+              </span>
             </div>
             <div className="stat">
               <span className="row" style={{ gap: 5 }}>
-                <MemoryStick size={12} /> الذاكرة
+                <MemoryStick size={12} /> النوافذ
               </span>
-              <b>{(ram / 1024).toFixed(1)} GB</b>
-              <span>من 8 GB مستخدمة</span>
+              <b>{vitals.windows}</b>
+              <span>نافذة مفتوحة الآن</span>
             </div>
             <div className="stat">
               <span className="row" style={{ gap: 5 }}>
-                <HardDrive size={12} /> التخزين
+                <HardDrive size={12} /> الملفات
               </span>
-              <b>4.9 GB</b>
-              <span>من 8 GB مستخدمة</span>
+              <b>{countFS(fs)}</b>
+              <span>عنصراً في نظام الملفات</span>
             </div>
             <div className="stat">
               <span className="row" style={{ gap: 5 }}>
                 <Activity size={12} /> العمليات
               </span>
-              <b>{procs.length + windows.length}</b>
-              <span>{windows.length} نافذة مفتوحة</span>
+              <b>{vitals.notes}</b>
+              <span>ملاحظة محفوظة</span>
             </div>
           </div>
 
           <div className="card">
-            <div className="row between">
-              <span style={{ fontSize: 11.5, fontWeight: 650 }}>حمل المعالج — آخر 30 ثانية</span>
-              <span className="tiny muted">{cpu.toFixed(1)}%</span>
+            <div className="row between" style={{ marginBottom: 6 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 650 }}>
+                <Info size={11} /> ما لا يستطيع تطبيق ويب قياسه
+              </span>
             </div>
-            <div className="spark">
-              {hist.map((v, i) => (
-                <i key={i} style={{ height: `${Math.max(6, Math.min(100, v))}%` }} />
-              ))}
-            </div>
+            <p className="tiny muted" style={{ lineHeight: 1.7, margin: 0 }}>
+              {UNMEASURABLE.join(' · ')}
+              <br />
+              محتواه محجوب عن كل تطبيق ويب (بلا صلاحية نظام أو Shizuku/root)، فلا
+              نرسم له رسماً بيانياً: الرقم الذي لا يُقاس لا يُعرض.
+            </p>
           </div>
 
           <div className="card">
@@ -93,17 +91,13 @@ export function MonitorApp() {
                 ملاحظات: {notes.length} · عناصر VFS: {countFS(fs)}
               </span>
             </div>
-            {procs.map((p) => (
-              <div className="process-row" key={p.name}>
+            {OUR_THREADS.map((t) => (
+              <div className="process-row" key={t}>
                 <span className="os-mono" style={{ width: 118, fontSize: 10.5 }}>
-                  {p.name}
+                  nova://{t}
                 </span>
-                <span style={{ width: 44, fontSize: 10, color: 'var(--text-dim)' }}>{p.cpu.toFixed(1)}%</span>
-                <div className="proc-bar">
-                  <i style={{ width: `${Math.min(100, p.cpu * 6)}%` }} />
-                </div>
-                <span style={{ width: 52, fontSize: 10, color: 'var(--text-dim)', textAlign: 'left' }} className="os-mono">
-                  {p.mem.toFixed(0)} MB
+                <span className="tiny muted" style={{ fontSize: 10 }}>
+                  خيط داخل هذا التطبيق — الحِمل لكل خيط لا يُقاس من الويب
                 </span>
               </div>
             ))}

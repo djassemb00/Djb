@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { nodeAt, resolvePath, useOS, type FSNode } from '../store/useOS';
 import { BOOT_DURATION } from '../store/useOS';
 import { cx } from '../system/cx';
+import { BUILTIN_IMAGES, useVM } from '../store/useVM';
 
 type Line = { text: string; cls?: 'err' | 'ok' | 'dim' | 'hi' };
 
@@ -46,6 +47,9 @@ export function TerminalApp() {
   const writeFile = useOS((s) => s.writeFile);
   const removePath = useOS((s) => s.removePath);
   const notify = useOS((s) => s.notify);
+  // the guest's real memory, so `free` reports the machine we actually emulate
+  const activeImageId = useVM((s) => s.activeImageId);
+  const userImages = useVM((s) => s.userImages);
   const open = useOS((s) => s.open);
   const lock = useOS((s) => s.lock);
   const restart = useOS((s) => s.restart);
@@ -179,17 +183,34 @@ export function TerminalApp() {
         }
         break;
       case 'df': {
-        const used = Math.min(96, 34 + countNodes(fs) * 1.4);
+        /*
+         * The virtual FS is in localStorage, whose real ceiling is the device quota --
+         * not the 8.0G the old output claimed, which was a number borrowed from a
+         * different machine entirely (the phone's RAM size, as "disk"). Report the size
+         * we can actually measure: bytes held by our own tree.
+         */
+        const nodes = countNodes(fs);
         out.push({ text: 'Filesystem      Size  Used  Avail  Use%' });
-        out.push({ text: `nova-vfs        8.0G  ${used.toFixed(1)}G  ${(8 - used / 12).toFixed(1)}G   ${used.toFixed(0)}%` });
-        out.push({ text: `tmpfs           2.0G  0.2G  1.8G    10%`, cls: 'dim' });
+        out.push({ text: `nova-vfs        ${nodes} nodes   (localStorage)`, cls: 'ok' });
+        out.push({ text: 'tmpfs           0   -- not emulated', cls: 'dim' });
         break;
       }
-      case 'free':
-        out.push({ text: '              total   used   free   shared' });
-        out.push({ text: 'Mem:          8192M  2416M  5776M     128M' });
-        out.push({ text: 'Swap:         2048M     0M  2048M', cls: 'dim' });
+      case 'free': {
+        /*
+         * `free` used to print "Mem: 8192M 2416M ..." -- the phone's RAM, as reported by
+         * a constant. The guest is a virtual machine with a memory size of its own, and
+         * that number IS known: it is in the machine's own descriptor.
+         */
+        const img =
+          BUILTIN_IMAGES.find((i) => i.id === activeImageId) ??
+          userImages.find((i) => i.id === activeImageId);
+        const mb = img?.memoryMB ?? 32;
+        out.push({ text: '              total   used   free', cls: 'dim' });
+        out.push({ text: `Mem:          ${mb}M   (الضيف لا يفصح)   --` });
+        out.push({ text: `${img?.name ?? 'NovaDesk'} · الضيف المُحاكى`, cls: 'dim' });
+        out.push({ text: 'ذاكرة الهاتف نفسها لا تُقاس من تطبيق ويب', cls: 'dim' });
         break;
+      }
       case 'uname':
         out.push({
           text:
